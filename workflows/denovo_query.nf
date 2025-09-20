@@ -4,14 +4,16 @@ nextflow.enable.dsl=2
 // Module includes
 // ---------------------
 include { SRAresolve } from '../modules/resolve_SRA'
-include { SRAdownloadPE } from '../modules/download_SRA'
-include { SRAdownloadSE } from '../modules/download_SRA'
+include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
 include { SPAdes } from '../modules/assemble_spades'
+include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
+include { BLASTn } from '../modules/blast_search'
+include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 
 // ---------------------
 // Main workflow
 // ---------------------
-workflow variant_calling {
+workflow denovo_query {
 
     // ---------------------
     // Input checks
@@ -51,51 +53,55 @@ workflow variant_calling {
     // ---------------------
     // Local FASTQ reads
     // ---------------------
-if (params.reads) {
-    read_pairs_local_ch = Channel.fromFilePairs(
-        params.reads,
-        checkIfExists: true,
-        flat: false // keeps paired R1/R2 in a tuple
+    if (params.reads) {
+        read_pairs_local_ch = Channel.fromFilePairs(
+            params.reads,
+            checkIfExists: true,
+            flat: false // keeps paired R1/R2 in a tuple
+        )
+        local_pe_formatted = read_pairs_local_ch.map { sample_id, reads_list ->
+            [sample_id, reads_list[0], reads_list[1]]
+        }
+    } else {
+        local_pe_formatted = Channel.empty()
+    }
+
+    // Only create SRA channel if SRA processing was enabled
+    if (params.SRA_index) {
+        sra_pe_formatted = SRAdownloadPE.out.map { sample_id, read1, read2 ->
+            [sample_id, read1, read2]
+        }
+    } else {
+        sra_pe_formatted = Channel.empty()
+    }
+
+    combined_pe_ch = sra_pe_formatted.mix(local_pe_formatted)
+
+    // ---------------------
+    // Denovo assembly
+    // ---------------------
+    // Connect channels to trimming processes
+    SPAdes(combined_pe_ch)
+    // Run QUAST on scaffolds
+    QUAST(SPAdes.out.scaffolds)
+
+    // Collect all QUAST metrics and summarize
+    quast_metrics = QUAST.out.metrics.collect()
+    SummarizeAssemblyMetrics(quast_metrics)
+
+    blast_query_file = file(params.blast_query)
+    BLASTn(SPAdes.out.scaffolds, blast_query_file)
+
+    // Extract hit regions from assemblies
+    ExtractBlastHits(
+        BLASTn.out.results,
+        SPAdes.out.scaffolds
     )
-    local_pe_formatted = read_pairs_local_ch.map { sample_id, reads_list ->
-        [sample_id, reads_list[0], reads_list[1]]
-    }
-} else {
-    local_pe_formatted = Channel.empty()
-}
-
-// Only create SRA channel if SRA processing was enabled
-if (params.SRA_index) {
-    sra_pe_formatted = SRAdownloadPE.out.map { sample_id, read1, read2 ->
-        [sample_id, read1, read2]
-    }
-} else {
-    sra_pe_formatted = Channel.empty()
-}
-
-combined_pe_ch = sra_pe_formatted.mix(local_pe_formatted)
-
-// ---------------------
-// Denovo assembly
-// ---------------------
-// Connect channels to trimming processes
-//trimSequencesPE(combined_pe_ch)
-
-// Handle SE trimming conditionally
-if (params.SRA_index) {
-//    trimSequencesSE(SRAdownloadSE.out)
-} else {
-//    trimSequencesSE(Channel.empty())
-}
-    // Access trimmed outputs
-//    pe_trimmed = trimSequencesPE.out.reads
-//    se_trimmed = trimSequencesSE.out.reads
-//    pe_reports = trimSequencesPE.out.report
-//    se_reports = trimSequencesSE.out.report
-
-    // Collect the JSON reports (second output channel, `emit: report`)
-//    se_reports_ch = se_reports.collect()
-//    pe_reports_ch = pe_reports.collect()
-
+    
+    // Combine all extracted sequences
+    all_hit_sequences = ExtractBlastHits.out.sequences.map { it[1] }.collect()
+    all_hit_info = ExtractBlastHits.out.hit_info.collect()
+    
+    CombineBlastHits(all_hit_sequences, all_hit_info)
 
 }

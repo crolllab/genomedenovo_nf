@@ -7,8 +7,10 @@ params.SRA_index = ""
 params.ploidy = ""
 params.NCBI_API_key = ""
 params.keep_bam_gvcf = "false"  // or "true"
+params.blast_query = ""
 
-include { variant_calling } from './workflows/variant_calling_wf'
+
+include { denovo_query } from './workflows/denovo_query.nf'
 
 log.info """
 
@@ -23,6 +25,7 @@ log.info """
      outdir         : ${params.outdir}
      reference      : ${params.reference}
      local files    : ${params.reads}
+     blast query    : ${params.blast_query}
      SRA ids file   : ${params.SRA_index}
      NCBI API key   : ${params.NCBI_API_key}
     """

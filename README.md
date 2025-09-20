@@ -48,6 +48,12 @@ cd singularity
 singularity pull https://depot.galaxyproject.org/singularity/entrez-direct:24.0--he881be0_0
 # sratools
 singularity pull https://depot.galaxyproject.org/singularity/sra-tools%3A3.2.1--h4304569_1
+# SPAdes
+singularity pull https://depot.galaxyproject.org/singularity/spades%3A4.2.0--haf24da9_0
+# QUAST
+singularity pull https://depot.galaxyproject.org/singularity/quast:5.3.0--py39pl5321heaaa4ec_0
+# NCBI BLAST+
+singularity pull https://depot.galaxyproject.org/singularity/blast%3A2.17.0--h66d330f_0
 ```
 
 ## Step 2: Configure `genomedenovo_nf` options  
