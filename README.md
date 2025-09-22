@@ -74,6 +74,8 @@ Available parameters
 
 - `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
 
+- `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. You can provide multiple fasta files using wildcards, e.g. `/path/to/folder/*.fasta`. The fasta files must have unique names and the file names will be used to name the output files.
+
   Important:
   - Accepts only paired-end reads locally. Both SE and PE are accepted from SRA.
   - If the download from SRA produces errors (connection reset, etc.), an alternative is to download the files separately, and use the `--reads` option to specify the downloaded files. See below for an example of how to download SRA files manually.

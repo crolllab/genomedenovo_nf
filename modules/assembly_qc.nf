@@ -44,7 +44,7 @@ process SummarizeAssemblyMetrics {
     script:
     """
     #!/usr/bin/env python3
-    import pandas as pd
+    import csv
     import glob
     import os
     
@@ -56,34 +56,54 @@ process SummarizeAssemblyMetrics {
         with open("assembly_summary_metrics.tsv", "w") as f:
             f.write("Sample_ID\\tNo_assembly_metrics_found\\n")
     else:
-        # Read and combine all TSV files
-        dataframes = []
+        all_data = []
+        all_metrics = set()
         
+        # Process each TSV file
         for file in tsv_files:
             try:
                 # Extract sample name from filename
                 sample_name = file.replace("_report.tsv", "")
                 
-                # Read the TSV (it's transposed format from QUAST)
-                df = pd.read_csv(file, sep="\\t")
+                # Read the TSV file
+                with open(file, 'r') as f:
+                    reader = csv.reader(f, delimiter='\\t')
+                    rows = list(reader)
                 
-                # Transpose so metrics are columns
-                df_transposed = df.set_index(df.columns[0]).T
+                if len(rows) < 2:
+                    continue
                 
-                # Add sample ID as first column
-                df_transposed.insert(0, "Sample_ID", sample_name)
+                # QUAST format: first column is metric names, second column is values
+                sample_data = {"Sample_ID": sample_name}
                 
-                dataframes.append(df_transposed)
+                for row in rows[1:]:  # Skip header
+                    if len(row) >= 2:
+                        metric_name = row[0].strip()
+                        metric_value = row[1].strip()
+                        sample_data[metric_name] = metric_value
+                        all_metrics.add(metric_name)
+                
+                all_data.append(sample_data)
                 
             except Exception as e:
                 print(f"Error processing {file}: {e}")
         
-        if dataframes:
-            # Combine all dataframes
-            combined_df = pd.concat(dataframes, ignore_index=True, sort=False)
+        if all_data:
+            # Sort metrics for consistent column order
+            sorted_metrics = sorted(all_metrics)
+            header = ["Sample_ID"] + sorted_metrics
             
-            # Save combined metrics
-            combined_df.to_csv("assembly_summary_metrics.tsv", sep="\\t", index=False)
+            # Write combined TSV
+            with open("assembly_summary_metrics.tsv", "w", newline='') as f:
+                writer = csv.writer(f, delimiter='\\t')
+                
+                # Write header
+                writer.writerow(header)
+                
+                # Write data rows
+                for sample_data in all_data:
+                    row = [sample_data.get(col, "") for col in header]
+                    writer.writerow(row)
         else:
             # Create empty summary if processing failed
             with open("assembly_summary_metrics.tsv", "w") as f:

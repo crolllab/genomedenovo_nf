@@ -7,19 +7,19 @@ process ExtractBlastHits {
     publishDir "${params.outdir}/blast_hit_sequences", mode: 'copy'
     
     input:
-    tuple val(sample_id), path(blast_results)
-    tuple val(sample_id_scaffolds), path(scaffolds_fasta)
+    tuple val(sample_id), path(blast_results), path(scaffolds_fasta)
     
     output:
     tuple val(sample_id), path("${sample_id}_top_hits.fasta"), emit: sequences
     path "${sample_id}_top_hits_info.tsv", emit: hit_info
     
-    when:
-    sample_id == sample_id_scaffolds
-    
     script:
     """
     #!/bin/bash
+    
+    echo "DEBUG: Processing ${sample_id}"
+    echo "DEBUG: BLAST results file: ${blast_results}"
+    echo "DEBUG: Scaffolds file: ${scaffolds_fasta}"
     
     # Check if BLAST results file exists and is not empty
     if [ ! -s "${blast_results}" ]; then
@@ -27,6 +27,10 @@ process ExtractBlastHits {
         touch ${sample_id}_top_hits.fasta
         exit 0
     fi
+    
+    echo "DEBUG: BLAST file size: \$(wc -l < ${blast_results}) lines"
+    echo "DEBUG: First few lines of BLAST results:"
+    head -5 ${blast_results}
     
     # Create header for hit info file
     echo -e "Sample_ID\\tQuery_ID\\tSubject_ID\\tPercent_Identity\\tAlignment_Length\\tStart\\tEnd\\tE_value\\tBit_Score" > ${sample_id}_top_hits_info.tsv
@@ -56,10 +60,19 @@ process ExtractBlastHits {
         }
     }' ${blast_results} > top_hits.tsv
     
+    echo "DEBUG: Top hits found: \$(wc -l < top_hits.tsv) hits"
+    echo "DEBUG: Top hits content:"
+    cat top_hits.tsv
+    
+    echo "DEBUG: Available sequences in FASTA:"
+    grep "^>" ${scaffolds_fasta} | head -10
+    
     # Process each top hit
     > ${sample_id}_top_hits.fasta
     
     while IFS=\$'\\t' read -r qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore; do
+        echo "DEBUG: Processing hit - Query: \$qseqid, Subject: \$sseqid, Coords: \$sstart-\$send"
+        
         # Determine start and end coordinates (ensure start < end)
         if [ "\$sstart" -le "\$send" ]; then
             start=\$sstart
@@ -69,18 +82,48 @@ process ExtractBlastHits {
             end=\$sstart
         fi
         
-        # Extract sequence using seqkit
-        seqkit subseq -r \${start}:\${end} ${scaffolds_fasta} -n "\$sseqid" >> temp_hit.fasta
+        echo "DEBUG: Adjusted coordinates: \$start-\$end"
         
-        # Rename the extracted sequence with informative header
+        # Check if subject sequence exists in FASTA
+        if grep -q "^\$sseqid" ${scaffolds_fasta}; then
+            echo "DEBUG: Found subject sequence \$sseqid in FASTA"
+        else
+            echo "DEBUG: Subject sequence \$sseqid NOT found in FASTA"
+            echo "DEBUG: Trying alternative matching..."
+            grep "^>" ${scaffolds_fasta} | grep "\$sseqid" || echo "No matches found"
+        fi
+        
+        # Extract sequence using seqkit
+        echo "DEBUG: Running seqkit command..."
+        seqkit subseq -r \${start}:\${end} ${scaffolds_fasta} --id-regexp "^\$sseqid" > temp_hit.fasta 2>seqkit_error.log
+        
         if [ -s temp_hit.fasta ]; then
+            echo "DEBUG: Successfully extracted sequence"
+            # Rename the extracted sequence with informative header
             sed "s/>.*/>${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}/" temp_hit.fasta >> ${sample_id}_top_hits.fasta
             
             # Add hit information to TSV
             echo -e "${sample_id}\\t\${qseqid}\\t\${sseqid}\\t\${pident}\\t\${length}\\t\${start}\\t\${end}\\t\${evalue}\\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+        else
+            echo "DEBUG: Failed to extract sequence"
+            echo "DEBUG: seqkit error log:"
+            cat seqkit_error.log || echo "No error log"
+            
+            # Try alternative extraction method
+            echo "DEBUG: Trying alternative seqkit syntax..."
+            seqkit subseq -r \${start}:\${end} ${scaffolds_fasta} -n "\$sseqid" > temp_hit2.fasta 2>seqkit_error2.log
+            
+            if [ -s temp_hit2.fasta ]; then
+                echo "DEBUG: Alternative method succeeded"
+                sed "s/>.*/>${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}/" temp_hit2.fasta >> ${sample_id}_top_hits.fasta
+                echo -e "${sample_id}\\t\${qseqid}\\t\${sseqid}\\t\${pident}\\t\${length}\\t\${start}\\t\${end}\\t\${evalue}\\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+            else
+                echo "DEBUG: Alternative method also failed"
+                cat seqkit_error2.log || echo "No error log"
+            fi
         fi
         
-        rm -f temp_hit.fasta
+        rm -f temp_hit.fasta temp_hit2.fasta seqkit_error.log seqkit_error2.log
         
     done < top_hits.tsv
     
@@ -92,6 +135,8 @@ process ExtractBlastHits {
         echo "No sequences could be extracted for ${sample_id}" >> ${sample_id}_top_hits_info.tsv
         touch ${sample_id}_top_hits.fasta
     fi
+    
+    echo "DEBUG: Final output file size: \$(wc -c < ${sample_id}_top_hits.fasta) bytes"
     """
 }
 
