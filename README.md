@@ -3,6 +3,9 @@
 Pipeline to assemble and query draft genomes
 ========================================
 
+# EARLY DRAFT - NOT MUCH FULLY WORKING YET!!
+
+
 The `genomedenovo_nf` Nextflow pipeline performs ....
 
 Implemented steps:
