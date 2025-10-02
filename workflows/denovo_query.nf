@@ -89,23 +89,29 @@ workflow denovo_query {
     // Local scaffold files
     // ---------------------
     if (params.scaffolds) {
-        // Check if scaffolds parameter is a directory or file pattern
         scaffolds_path = params.scaffolds
         
-        // If it's a directory, add the file pattern
+        // Check if it's a directory containing subdirectories with scaffolds.fasta
         if (file(scaffolds_path).isDirectory()) {
-            scaffolds_pattern = "${scaffolds_path}/*.{fasta,fa,fna}"
+            // Pattern to find scaffolds.fasta in subdirectories: parent_dir/*/scaffolds.fasta
+            scaffolds_pattern = "${scaffolds_path}/*/scaffolds.{fasta,fa,fna}"
+            
+            local_scaffolds_ch = Channel
+                .fromPath(scaffolds_pattern, checkIfExists: true)
+                .map { file ->
+                    // Use the parent directory name as sample_id
+                    def sample_id = file.parent.name
+                    [sample_id, file]
+                }
         } else {
-            // If it's already a pattern or specific files
-            scaffolds_pattern = scaffolds_path
+            // If it's a file pattern or specific file(s)
+            local_scaffolds_ch = Channel
+                .fromPath(scaffolds_path, checkIfExists: true)
+                .map { file ->
+                    def sample_id = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
+                    [sample_id, file]
+                }
         }
-        
-        local_scaffolds_ch = Channel
-            .fromPath(scaffolds_pattern, checkIfExists: true)
-            .map { file ->
-                def sample_id = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
-                [sample_id, file]
-            }
     } else {
         local_scaffolds_ch = Channel.empty()
     }

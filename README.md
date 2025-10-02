@@ -77,7 +77,23 @@ Available parameters
 
 - `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
 
-- `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. You can provide multiple fasta files using wildcards, e.g. `/path/to/folder/*.fasta`. The fasta files must have unique names and the file names will be used to name the output files.
+- `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. 
+  
+  **Two input modes supported:**
+  1. **Directory with multiple samples**: Provide a directory path where each subdirectory contains a `scaffolds.fasta` file. The subdirectory name will be used as the sample ID.
+     ```bash
+     --scaffolds '/path/to/assemblies'
+     # Expected structure:
+     #   assemblies/
+     #     sample1/scaffolds.fasta
+     #     sample2/scaffolds.fasta
+     #     sample3/scaffolds.fasta
+     ```
+  
+  2. **Direct file pattern**: Provide a glob pattern to match specific fasta files. The base filename will be used as the sample ID.
+     ```bash
+     --scaffolds '/path/to/folder/*.fasta'
+     ```
 
   Important:
   - Accepts only paired-end reads locally. Both SE and PE are accepted from SRA.
@@ -152,7 +168,32 @@ nextflow run main.nf -config nextflow.config -profile slurm \
   --SRA_index './SRA_accessions.txt' \
 ```
 
-Notes on the exection:
+### Example: Multi-sample BLAST analysis on pre-assembled genomes
+
+Process multiple pre-assembled genomes and extract BLAST hits:
+
+```bash
+# Directory containing multiple sample folders, each with scaffolds.fasta
+ASSEMBLIES='/path/to/assemblies'
+QUERY='./wagA_gene.fa'
+
+micromamba activate nf_gp_env
+
+nextflow run main.nf -config nextflow.config \
+  -profile local_highCPU \
+  -work-dir '/scratch/nf_tmp' \
+  --outdir './blast_output' \
+  --scaffolds $ASSEMBLIES \
+  --blast_query $QUERY
+```
+
+This will:
+1. Process all `scaffolds.fasta` files found in subdirectories of `$ASSEMBLIES`
+2. Run BLAST search for each sample
+3. Extract hit sequences from each sample
+4. Combine all hits into `all_blast_hits.fasta` and `all_blast_hits_summary.tsv`
+
+Notes on the execution:
 - Before executing the `nextflow` command, enter e.g. a `tmux` or `screen` session. The session needs to remain active until the end of the pipeline (even if you specify the `slurm` option)
 - In `local` and `local_highCPU` modes, the pipeline will run on the local machine. Use the `slurm` option to spread the load to all available nodes (requires SLURM).
 

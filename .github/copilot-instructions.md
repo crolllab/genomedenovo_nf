@@ -14,10 +14,10 @@ This is a **Nextflow DSL2 pipeline** for de novo genome assembly and BLAST-based
 1. **Input routing** (3 parallel paths):
    - Local FASTQ pairs → `read_pairs_local_ch`
    - SRA accessions → `SRAresolve` → split PE/SE → `SRAdownloadPE/SE`
-   - Pre-assembled scaffolds → `local_scaffolds_ch`
+   - Pre-assembled scaffolds → `local_scaffolds_ch` (supports multi-sample directories)
 
 2. **Channel mixing**: All paths converge into `all_scaffolds_ch` using `.mix()` operations
-3. **Parallel processing**: QUAST (QC) and BLASTn run independently on all scaffolds
+3. **Parallel processing**: QUAST (QC) and BLASTn run independently on **each** scaffold sample
 4. **Aggregation**: Results collected with `.collect()` for summary generation
 
 ### Critical Architectural Patterns
@@ -107,6 +107,18 @@ The pipeline expects **paired-end** reads with flexible naming:
 - `*_R1_001.fq.gz` / `*_R2_001.fq.gz`
 
 Pattern: `--reads '/path/**_{,R}{1,2}{,_001,_001_*}.{fq,fastq}.gz'`
+
+### Scaffold Input Modes
+The `--scaffolds` parameter supports two modes:
+
+1. **Multi-sample directory**: Provide directory path containing subdirectories, each with `scaffolds.fasta`
+   - Pattern: `--scaffolds '/path/to/assemblies'`
+   - Structure: `assemblies/sample1/scaffolds.fasta`, `assemblies/sample2/scaffolds.fasta`, etc.
+   - Sample ID: Extracted from subdirectory name (e.g., `sample1`, `sample2`)
+
+2. **Direct file pattern**: Glob pattern for specific files
+   - Pattern: `--scaffolds '/path/to/*.fasta'`
+   - Sample ID: Extracted from base filename
 
 ### SRA Resolution Pattern
 `SRAresolve` process splits accessions into PE/SE based on NCBI metadata using `esearch` + `efetch`:
