@@ -135,12 +135,11 @@ if (params.blast_query) {
     // Run BLAST on all scaffolds
     BLASTn(all_scaffolds_ch, blast_query_file)
     
+     // Join BLAST results with scaffold files for extraction
+    blast_with_scaffolds = BLASTn.out.results.join(all_scaffolds_ch)
+    
     // Extract hit regions from assemblies
-    // Join the BLAST results with the corresponding scaffold files
-    ExtractBlastHits(
-        BLASTn.out.results,
-        all_scaffolds_ch
-    )
+    ExtractBlastHits(blast_with_scaffolds)
     
     // Combine all extracted sequences
     all_hit_sequences = ExtractBlastHits.out.sequences.map { it[1] }.collect()

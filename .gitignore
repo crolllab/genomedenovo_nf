@@ -1,2 +1,7 @@
 .DS_Store
-
+singularity
+nf_output
+.nextflow*
+run.sh
+*.fa
+*.fasta

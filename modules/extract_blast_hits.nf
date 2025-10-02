@@ -42,7 +42,7 @@ process ExtractBlastHits {
         query = \$1
         subject = \$2
         pident = \$3
-        length = \$4
+        align_length = \$4
         sstart = \$9
         send = \$10
         evalue = \$11
@@ -67,10 +67,16 @@ process ExtractBlastHits {
     echo "DEBUG: Available sequences in FASTA:"
     grep "^>" ${scaffolds_fasta} | head -10
     
+    # Create FASTA index if it doesn't exist
+    echo "DEBUG: Creating FASTA index..."
+    if [ ! -f "${scaffolds_fasta}.fai" ]; then
+        samtools faidx ${scaffolds_fasta}
+    fi
+    
     # Process each top hit
     > ${sample_id}_top_hits.fasta
     
-    while IFS=\$'\\t' read -r qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore; do
+    while IFS=\$'\\t' read -r qseqid sseqid pident align_length mismatch gapopen qstart qend sstart send evalue bitscore; do
         echo "DEBUG: Processing hit - Query: \$qseqid, Subject: \$sseqid, Coords: \$sstart-\$send"
         
         # Determine start and end coordinates (ensure start < end)
@@ -85,7 +91,7 @@ process ExtractBlastHits {
         echo "DEBUG: Adjusted coordinates: \$start-\$end"
         
         # Check if subject sequence exists in FASTA
-        if grep -q "^\$sseqid" ${scaffolds_fasta}; then
+        if grep -q ">\$sseqid" ${scaffolds_fasta}; then
             echo "DEBUG: Found subject sequence \$sseqid in FASTA"
         else
             echo "DEBUG: Subject sequence \$sseqid NOT found in FASTA"
@@ -93,9 +99,9 @@ process ExtractBlastHits {
             grep "^>" ${scaffolds_fasta} | grep "\$sseqid" || echo "No matches found"
         fi
         
-        # Extract sequence using seqkit
-        echo "DEBUG: Running seqkit command..."
-        seqkit subseq -r \${start}:\${end} ${scaffolds_fasta} --id-regexp "^\$sseqid" > temp_hit.fasta 2>seqkit_error.log
+        # Extract sequence using samtools faidx
+        echo "DEBUG: Running samtools faidx command..."
+        samtools faidx ${scaffolds_fasta} "\$sseqid:\${start}-\${end}" > temp_hit.fasta 2>samtools_error.log
         
         if [ -s temp_hit.fasta ]; then
             echo "DEBUG: Successfully extracted sequence"
@@ -103,27 +109,37 @@ process ExtractBlastHits {
             sed "s/>.*/>${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}/" temp_hit.fasta >> ${sample_id}_top_hits.fasta
             
             # Add hit information to TSV
-            echo -e "${sample_id}\\t\${qseqid}\\t\${sseqid}\\t\${pident}\\t\${length}\\t\${start}\\t\${end}\\t\${evalue}\\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+            echo -e "${sample_id}\\t\${qseqid}\\t\${sseqid}\\t\${pident}\\t\${align_length}\\t\${start}\\t\${end}\\t\${evalue}\\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
         else
-            echo "DEBUG: Failed to extract sequence"
-            echo "DEBUG: seqkit error log:"
-            cat seqkit_error.log || echo "No error log"
+            echo "DEBUG: Failed to extract sequence with coordinates"
+            echo "DEBUG: samtools error log:"
+            cat samtools_error.log || echo "No error log"
             
-            # Try alternative extraction method
-            echo "DEBUG: Trying alternative seqkit syntax..."
-            seqkit subseq -r \${start}:\${end} ${scaffolds_fasta} -n "\$sseqid" > temp_hit2.fasta 2>seqkit_error2.log
+            # Try extracting the full sequence and then cutting it
+            echo "DEBUG: Trying full sequence extraction..."
+            samtools faidx ${scaffolds_fasta} "\$sseqid" > temp_full.fasta 2>samtools_error2.log
             
-            if [ -s temp_hit2.fasta ]; then
-                echo "DEBUG: Alternative method succeeded"
-                sed "s/>.*/>${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}/" temp_hit2.fasta >> ${sample_id}_top_hits.fasta
-                echo -e "${sample_id}\\t\${qseqid}\\t\${sseqid}\\t\${pident}\\t\${length}\\t\${start}\\t\${end}\\t\${evalue}\\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+            if [ -s temp_full.fasta ]; then
+                echo "DEBUG: Full sequence extracted, now extracting region..."
+                # Extract just the sequence (no header), then get the substring
+                tail -n +2 temp_full.fasta | tr -d '\\n' | cut -c\${start}-\${end} > temp_seq.txt
+                
+                if [ -s temp_seq.txt ]; then
+                    echo "DEBUG: Region extraction succeeded"
+                    echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" > temp_hit.fasta
+                    cat temp_seq.txt >> temp_hit.fasta
+                    cat temp_hit.fasta >> ${sample_id}_top_hits.fasta
+                    echo -e "${sample_id}\\t\${qseqid}\\t\${sseqid}\\t\${pident}\\t\${align_length}\\t\${start}\\t\${end}\\t\${evalue}\\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+                else
+                    echo "DEBUG: Region extraction failed"
+                fi
             else
-                echo "DEBUG: Alternative method also failed"
-                cat seqkit_error2.log || echo "No error log"
+                echo "DEBUG: Full sequence extraction also failed"
+                cat samtools_error2.log || echo "No error log"
             fi
         fi
         
-        rm -f temp_hit.fasta temp_hit2.fasta seqkit_error.log seqkit_error2.log
+        rm -f temp_hit.fasta temp_full.fasta temp_seq.txt samtools_error.log samtools_error2.log
         
     done < top_hits.tsv
     
