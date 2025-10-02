@@ -132,8 +132,9 @@ process CombineBlastHits {
     set -euo pipefail
     
     # Combine all FASTA files (skip empty files)
-    for fasta in *.fasta; do
-        if [ -s "\$fasta" ]; then
+    # Use specific pattern to avoid reading the output file
+    for fasta in *_top_hits.fasta; do
+        if [ -f "\$fasta" ] && [ -s "\$fasta" ]; then
             cat "\$fasta"
         fi
     done > all_blast_hits.fasta
