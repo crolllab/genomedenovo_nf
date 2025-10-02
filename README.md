@@ -14,15 +14,13 @@ Implemented steps:
 - `spades`: denovo assembly of Illumina paired-end reads
 - `quast`: assembly quality assessment
 
-Current limitations:
-
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
 Cloning the repository, 
 ```bash
-git clone git@github.com:crolllab/genomepanel_nf.git
-cd genomepanel_nf
+git clone git@github.com:crolllab/genomedenovo_nf.git
+cd genomedenovo_nf
 ```
 
 Create a conda environment for Nextflow
@@ -202,9 +200,25 @@ Notes on the execution:
 
 The pipeline will produce the following output files in the specified `--outdir`:
 
+- `assembly_stats.tsv`: Table with assembly statistics for all samples
+- `quast_report.html`: Interactive HTML report from QUAST
+- `blast_hit_sequences/`: Folder containing per-sample BLAST hit sequences and metadata tables
+  - `{sample_id}_top_hits.fasta`: FASTA file with extracted hit sequences for
+  - `{sample_id}_top_hits_info.tsv`: Metadata table for each hit, including sample ID, contig ID, percent identity, alignment length, e-value, bit score, etc.
+- `all_blast_hits.fasta`: Combined FASTA file with all hit sequences from all samples
+- `all_blast_hits_summary.tsv`: Combined metadata table with Sample_ID column
+- `assembly_summary_metrics.tsv`: Table with QUAST metrics for all samples
+
 
 ## Description of pipeline steps
 
+- **Download from NCBI SRA** (optional): Using `entrez-direct` and `sratools`, the pipeline can download FASTQ files from NCBI SRA based on provided accession IDs. The `--SRA_index` parameter accepts a file with one accession per line.
+
+- **Assembly with SPAdes**: The pipeline assembles Illumina paired-end reads using SPAdes with default parameters optimized for bacterial genomes. Each sample is processed independently.
+
+- **Assembly quality assessment with QUAST**: Each assembled genome is evaluated using QUAST, producing both per-sample reports and a combined summary table.
+
+- **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLASTn. The top hits are extracted, and both per-sample and combined FASTA files and metadata tables are generated.
 
 
 ## Features to consider / bug fixes
