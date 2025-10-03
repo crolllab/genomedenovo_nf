@@ -3,21 +3,20 @@
 Pipeline to assemble and query draft genomes
 ========================================
 
-# EARLY DRAFT - NOT MUCH FULLY WORKING YET!!
-
-
-The `genomedenovo_nf` Nextflow pipeline performs ....
+The `genomedenovo_nf` Nextflow pipeline performs denovo assembly of Illumina paired-end reads, assesses assembly quality, and searches for user-provided query sequences using BLAST. The pipeline supports providing assembled scaffolds, in addition local FASTQ files and downloading from NCBI SRA can be used to start SPAdes assembly assemblies.
 
 Implemented steps:
 - `entrez-direct`: query NCBI SRA for metadata (optional)
 - `sratools`: download SRA files (optional)
 - `spades`: denovo assembly of Illumina paired-end reads
 - `quast`: assembly quality assessment
-
+- `ncbi-blast+`: BLAST search of user-provided query sequence(s) against assembled genomes
+- `mafft`: multiple sequence alignment of extracted BLAST hits (optional)
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
-Cloning the repository, 
+Cloneing the repository
+
 ```bash
 git clone git@github.com:crolllab/genomedenovo_nf.git
 cd genomedenovo_nf
@@ -73,25 +72,24 @@ Available parameters
 
 - `--NCBI_API_key`: Required for querying and downloading from NCBI SRA. You can get your key by creating an [account on NCBI](https://account.ncbi.nlm.nih.gov/). After registration/login, find on the top right the link to the "Account settings". Click on "Create API key" and copy it.
 
-- `--reads`: Optional. Provide the path to the folder containing the fastq read files. The pipeline will automatically find all paired read files based on the naming convention. Must be bracketed by single quotes `'`. See below for examples. Important: accepts only paired-end reads.
-
-- `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
-
 - `--blast_query`: Optional. Provide a FASTA file containing query sequence(s) for BLAST search against assembled genomes. The pipeline automatically detects whether queries are **nucleotide** or **protein** sequences:
   - **Nucleotide queries** (DNA/RNA): Uses `blastn` for direct nucleotide comparison
   - **Protein queries** (amino acids): Uses `tblastn` to search translated genome sequences
   - Supports multi-sequence FASTA files - each sequence is processed independently
   - Detection: Sequences with ≥95% ATGCUN characters are classified as nucleotide, otherwise protein
-  - See `FEATURE_blast_tool_selection.md` for details on detection logic
 
-- `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `0` (extract exact hit region only).
+- `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `100`.
   - Example: `--padding 100` extracts hit region plus 100 bp upstream and 100 bp downstream
   - Useful for capturing regulatory regions, promoters, or getting more context around hits
   - Automatically ensures coordinates stay within scaffold boundaries
   - Padded coordinates shown in FASTA headers; original BLAST coordinates saved in TSV files
 
+- `--reads`: Optional. Provide the path to the folder containing the fastq read files. The pipeline will automatically find all paired read files based on the naming convention. Must be bracketed by single quotes `'`. See below for examples. Important: accepts only paired-end reads.
+
+- `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
+
 - `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. 
-  
+
   **Two input modes supported:**
   1. **Directory with multiple samples**: Provide a directory path where each subdirectory contains a `scaffolds.fasta` file. The subdirectory name will be used as the sample ID.
      ```bash
@@ -107,10 +105,6 @@ Available parameters
      ```bash
      --scaffolds '/path/to/folder/*.fasta'
      ```
-
-  Important:
-  - Accepts only paired-end reads locally. Both SE and PE are accepted from SRA.
-  - If the download from SRA produces errors (connection reset, etc.), an alternative is to download the files separately, and use the `--reads` option to specify the downloaded files. See below for an example of how to download SRA files manually.
 
 ## Step 3: Run `genomedenovo_nf` - example options
 
@@ -157,6 +151,7 @@ ERR13824499
 
 Save the text file e.g. as `SRA_accessions.txt`. The repository includes an example file.
 
+
 ## Step 4: `genomedenovo_nf` run example
 
 ```bash
@@ -179,6 +174,7 @@ nextflow run main.nf -config nextflow.config -profile slurm \
   --NCBI_API_key $NCBI_API_KEY \
   --reads $READS \
   --SRA_index './SRA_accessions.txt' \
+  --blast_query './query.fa' \
 ```
 
 ### Example: Multi-sample BLAST analysis on pre-assembled genomes
@@ -289,5 +285,5 @@ parallel -j 10 < SRA_download.sh
 
 NB: Don't try to download too many files at once, as NCBI will stall you.
 
-Proceed with `genomepanel_nf` as described above, using the `--reads` option to point to the download folder.
+Proceed with `genomedenovo_nf` as described above, using the `--reads` option to point to the download folder.
 
