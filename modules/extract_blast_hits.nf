@@ -88,6 +88,7 @@ process ExtractBlastHits {
             # Write sequence with informative header
             echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
             fold -w 60 temp_seq.txt >> ${sample_id}_top_hits.fasta
+            echo "" >> ${sample_id}_top_hits.fasta
             
             # Add hit information to TSV
             echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${start}\t\${end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
@@ -112,6 +113,7 @@ process ExtractBlastHits {
                         echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
                         # Add newlines every 60 characters for proper FASTA format
                         fold -w 60 temp_subseq.txt >> ${sample_id}_top_hits.fasta
+                        echo "" >> ${sample_id}_top_hits.fasta
                         
                         echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${start}\t\${end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
                     fi
