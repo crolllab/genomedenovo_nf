@@ -9,6 +9,7 @@ include { SPAdes } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
 include { BLASTn } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
+include { AlignMAFFT } from '../modules/align_mafft'
 
 // ---------------------
 // Main workflow
@@ -152,5 +153,11 @@ if (params.blast_query) {
     all_hit_info = ExtractBlastHits.out.hit_info.collect()
     
     CombineBlastHits(all_hit_sequences, all_hit_info)
+    
+    // ---------------------
+    // Multiple sequence alignment
+    // ---------------------
+    // Run MAFFT alignment on the combined BLAST hit sequences
+    AlignMAFFT(CombineBlastHits.out.combined_sequences)
 }
 }

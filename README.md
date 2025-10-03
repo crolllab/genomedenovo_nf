@@ -55,6 +55,8 @@ singularity pull https://depot.galaxyproject.org/singularity/spades%3A4.2.0--haf
 singularity pull https://depot.galaxyproject.org/singularity/quast:5.3.0--py39pl5321heaaa4ec_0
 # NCBI BLAST+
 singularity pull https://depot.galaxyproject.org/singularity/blast%3A2.17.0--h66d330f_0
+# MAFFT
+singularity pull https://depot.galaxyproject.org/singularity/mafft%3A7.525--h031d066_1
 ```
 
 ## Step 2: Configure `genomedenovo_nf` options  
@@ -208,6 +210,11 @@ The pipeline will produce the following output files in the specified `--outdir`
 - `all_blast_hits.fasta`: Combined FASTA file with all hit sequences from all samples
 - `all_blast_hits_summary.tsv`: Combined metadata table with Sample_ID column
 - `assembly_summary_metrics.tsv`: Table with QUAST metrics for all samples
+- `mafft_alignments/`: Folder containing per-sample multiple sequence alignments
+  - `{sample_id}_aligned.fasta`: MAFFT alignment for BLAST hit sequences from each sample
+  - `{sample_id}_alignment_log.txt`: MAFFT alignment log and statistics
+- `all_sequences_aligned.fasta`: Combined multiple sequence alignment of all BLAST hits from all samples
+- `mafft_alignment_summary.txt`: Summary report of all MAFFT alignments
 
 
 ## Description of pipeline steps
@@ -219,6 +226,8 @@ The pipeline will produce the following output files in the specified `--outdir`
 - **Assembly quality assessment with QUAST**: Each assembled genome is evaluated using QUAST, producing both per-sample reports and a combined summary table.
 
 - **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLASTn. The top hits are extracted, and both per-sample and combined FASTA files and metadata tables are generated.
+
+- **Multiple sequence alignment with MAFFT**: The extracted BLAST hit sequences from each sample are aligned using MAFFT with `--auto` and `--adjustdirection` options. This produces both per-sample alignments and a combined alignment of all sequences from all samples.
 
 
 ## Features to consider / bug fixes

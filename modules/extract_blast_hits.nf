@@ -62,18 +62,32 @@ process ExtractBlastHits {
     
     while IFS=\$'\t' read -r qseqid sseqid pident align_length mismatch gapopen qstart qend sstart send evalue bitscore; do
         # Determine start and end coordinates (ensure start < end for samtools)
+        # Also determine if sequence is in reverse orientation
         if [ "\$sstart" -le "\$send" ]; then
             start=\$sstart
             end=\$send
+            reverse=false
         else
             start=\$send
             end=\$sstart
+            reverse=true
         fi
         
         # Extract sequence using samtools faidx with proper coordinate format
         if samtools faidx "${scaffolds_fasta}" "\${sseqid}:\${start}-\${end}" > temp_hit.fasta 2>/dev/null; then
-            # Rename the header with informative name
-            sed "s|^>.*|>${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}|" temp_hit.fasta >> ${sample_id}_top_hits.fasta
+            # Extract just the sequence (no header)
+            tail -n +2 temp_hit.fasta | tr -d '\n' > temp_seq.txt
+            
+            # Reverse complement if hit is on the reverse strand
+            if [ "\$reverse" = true ]; then
+                # Reverse complement using tr and rev
+                cat temp_seq.txt | tr 'ATGCatgc' 'TACGtacg' | rev > temp_rc.txt
+                mv temp_rc.txt temp_seq.txt
+            fi
+            
+            # Write sequence with informative header
+            echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
+            fold -w 60 temp_seq.txt >> ${sample_id}_top_hits.fasta
             
             # Add hit information to TSV
             echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${start}\t\${end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
@@ -89,6 +103,12 @@ process ExtractBlastHits {
                     cat temp_full_seq.txt | cut -c\${start}-\${end} > temp_subseq.txt
                     
                     if [ -s temp_subseq.txt ]; then
+                        # Reverse complement if hit is on the reverse strand
+                        if [ "\$reverse" = true ]; then
+                            cat temp_subseq.txt | tr 'ATGCatgc' 'TACGtacg' | rev > temp_rc.txt
+                            mv temp_rc.txt temp_subseq.txt
+                        fi
+                        
                         echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
                         # Add newlines every 60 characters for proper FASTA format
                         fold -w 60 temp_subseq.txt >> ${sample_id}_top_hits.fasta
@@ -99,7 +119,7 @@ process ExtractBlastHits {
             fi
         fi
         
-        rm -f temp_hit.fasta temp_full_seq.txt temp_subseq.txt
+        rm -f temp_hit.fasta temp_seq.txt temp_rc.txt temp_full_seq.txt temp_subseq.txt
         
     done < top_hits.tsv
     
@@ -123,8 +143,8 @@ process CombineBlastHits {
     path hit_info_files
     
     output:
-    path "all_blast_hits.fasta"
-    path "all_blast_hits_summary.tsv"
+    path "all_blast_hits.fasta", emit: combined_sequences
+    path "all_blast_hits_summary.tsv", emit: summary
     
     script:
     """

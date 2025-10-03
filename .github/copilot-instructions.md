@@ -1,187 +1,51 @@
+
 # Copilot Instructions for genomedenovo_nf
 
 ## Project Overview
-This is a **Nextflow DSL2 pipeline** for de novo genome assembly and BLAST-based querying of fungal genomes (primarily *Zymoseptoria tritici*). The pipeline handles three input modes: local FASTQ files, NCBI SRA accessions, or pre-assembled scaffolds.
+This project is a **Nextflow DSL2 pipeline** for de novo genome assembly and BLAST-based querying of fungal genomes (mainly *Zymoseptoria tritici*). It supports three input modes: local FASTQ files, NCBI SRA accessions, or pre-assembled scaffolds. The pipeline is modular, with all processes in `modules/`, a single workflow in `workflows/denovo_query.nf`, and the entry point in `main.nf`.
 
 ## Architecture & Data Flow
+- **Input routing**: Three parallel paths (local FASTQ, SRA, or scaffolds) are routed and normalized to `[sample_id, file(s)]` tuples. SRA accessions are resolved and split into PE/SE using `resolve_SRA.nf` and `download_SRA.nf`.
+- **Channel mixing**: All input types are merged into a single channel for downstream processing using `.mix()` (see `main.nf`).
+- **Parallel processing**: Each sample is processed independently for assembly (SPAdes), QC (QUAST), and BLAST search. Results are aggregated with `.collect()` for summary outputs.
+- **Conditional execution**: Input validation is performed at the workflow level (not in processes). Example:
+  ```groovy
+  if (!params.reads && !params.SRA_index && !params.scaffolds) {
+      exit 1, "ERROR: No input provided..."
+  }
+  ```
 
-### Pipeline Structure
-- **Entry point**: `main.nf` → includes `workflows/denovo_query.nf`
-- **Modular design**: All processes defined in `modules/*.nf` files
-- **Single workflow**: `denovo_query` orchestrates all steps via channel mixing and conditional execution
-
-### Data Flow Pattern
-1. **Input routing** (3 parallel paths):
-   - Local FASTQ pairs → `read_pairs_local_ch`
-   - SRA accessions → `SRAresolve` → split PE/SE → `SRAdownloadPE/SE`
-   - Pre-assembled scaffolds → `local_scaffolds_ch` (supports multi-sample directories)
-
-2. **Channel mixing**: All paths converge into `all_scaffolds_ch` using `.mix()` operations
-3. **Parallel processing**: QUAST (QC) and BLASTn run independently on **each** scaffold sample
-4. **Aggregation**: Results collected with `.collect()` for summary generation
-
-### Critical Architectural Patterns
-
-**Channel mixing for multi-source input**:
-```groovy
-combined_pe_ch = sra_pe_formatted.mix(local_pe_formatted)
-all_scaffolds_ch = spades_scaffolds.mix(local_scaffolds_ch)
-```
-
-**Tuple structure standardization**: All channels emit `[sample_id, file(s)]` tuples for consistency across modules.
-
-**Conditional workflow execution**: Input validation at workflow start, not in processes:
-```groovy
-if (!params.reads && !params.SRA_index && !params.scaffolds) {
-    exit 1, "ERROR: No input provided..."
-}
-```
-
-## Singularity Container Management
-
-**Critical**: All bioinformatics tools run in **local Singularity containers** stored in `./singularity/` directory.
-
-- Container paths are **relative** (e.g., `'./singularity/spades%3A4.2.0--haf24da9_0'`)
-- Containers are pre-built from Galaxy Project depot (see README)
-- Each process in `nextflow.config` maps to a specific container using `withName:` directive
-- URL-encoded characters in filenames (e.g., `%3A` for `:`) must match exactly
-
-**Container assignment pattern** in `nextflow.config`:
-```groovy
-withName:SPAdes {
-    container = './singularity/spades%3A4.2.0--haf24da9_0'
-}
-```
-
-## Critical Developer Workflows
-
-### Running the Pipeline
-
-**Always use `micromamba` environment**:
-```bash
-micromamba activate nf_gp_env
-```
-
-**Profile selection** (`-profile` in `nextflow.config`):
-- `local`: 4 CPUs per task, no SLURM
-- `local_highCPU`: 24 CPUs per task (for development/testing)
-- `slurm`: Submit jobs to SLURM cluster (production)
-
-**Essential parameters**:
-- `--reads`: Glob pattern for local FASTQ pairs (must use single quotes!)
-- `--SRA_index`: File with SRA accessions (one per line)
-- `--scaffolds`: Pre-assembled genomes (skip assembly step)
-- `--blast_query`: FASTA file for BLAST search
-- `--NCBI_API_key`: Required for SRA operations
-- `-work-dir`: Nextflow temp directory (use `/scratch` for large runs)
-- `--outdir`: Final output location (default: `./nf_output`)
-
-**Example invocation** (see `run.sh`):
-```bash
-nextflow run main.nf -config nextflow.config \
-    -profile local_highCPU \
-    -work-dir '/scratch/daniel_tmp' \
-    --outdir './nf_output' \
-    --reads '/legserv/NGS_data/**_{1,2}.fq.gz' \
-    --SRA_index './SRA_accessions.txt' \
-    --blast_query './wagA_gene.fa' \
-    --NCBI_API_key $NCBI_API_KEY
-```
-
-### Debugging & Development
-
-**Nextflow resume**: Use `-resume` to skip completed processes (requires intact `work-dir`)
-
-**Error handling**: Most processes use `errorStrategy 'ignore'` to continue pipeline on individual sample failures
-
-**Logging**: Nextflow logs rotate (`.nextflow.log.1`, `.nextflow.log.2`, etc.)
-
-**Testing workflow changes**: Use `local_highCPU` profile with small datasets before submitting to SLURM
+## Developer Workflows
+- **Environment**: Always activate the `nf_gp_env` micromamba environment before running Nextflow.
+- **Running**: Use `nextflow run main.nf -config nextflow.config ...` with appropriate `-profile` (`local`, `local_highCPU`, `slurm`). See `run.sh` for examples.
+- **Testing**: Use `local_highCPU` for development/testing with small datasets. Use `-resume` to skip completed steps.
+- **Debugging**: Most processes use `errorStrategy 'ignore'` to allow the pipeline to continue on sample failure. Logs rotate as `.nextflow.log.*`.
 
 ## Project-Specific Conventions
+- **FASTQ naming**: Paired-end reads must match patterns like `*_1.fq.gz`, `*_R1.fq.gz`, or `*_R1_001.fq.gz`. See `README.md` for glob patterns.
+- **Scaffold input**: `--scaffolds` can be a directory of subfolders (each with `scaffolds.fasta`) or a glob of files. Sample IDs are extracted from subdirectory or filename.
+- **Channel tuple structure**: All channels between modules use `[sample_id, file(s)]` for consistency.
+- **Containerization**: All tools run in local Singularity containers from `./singularity/`. Container paths are relative and must match the URL-encoded filenames in `nextflow.config` (e.g., `%3A` for `:`).
+- **Resource cleanup**: SPAdes modules delete intermediate files after assembly. BLAST modules remove temporary databases after search.
 
-### FASTQ File Naming
-The pipeline expects **paired-end** reads with flexible naming:
-- `*_1.fq.gz` / `*_2.fq.gz`
-- `*_R1.fq.gz` / `*_R2.fq.gz`
-- `*_R1_001.fq.gz` / `*_R2_001.fq.gz`
+## Output Organization
+All outputs are written to `nf_output/` (configurable via `--outdir`). Key subfolders:
+- `spades_assemblies/`, `spades_stats/`, `quast_reports/`, `blast_results/`, `blast_hit_sequences/`
+- Aggregated files: `assembly_summary_metrics.tsv`, `all_blast_hits.fasta`, `all_blast_hits_summary.tsv`, `all_sequences_aligned.fasta`, `mafft_alignment_log.txt`
 
-Pattern: `--reads '/path/**_{,R}{1,2}{,_001,_001_*}.{fq,fastq}.gz'`
+## Integration & External Dependencies
+- **NCBI SRA**: Accessed via `entrez-direct` and `sra-tools` (in containers)
+- **LEGserv**: Lab file server for input data (e.g., `/legserv/NGS_data/`)
+- **Tool versions**: See `singularity/` for exact versions (SPAdes 4.2.0, QUAST 5.3.0, BLAST+ 2.17.0, MAFFT 7.525, etc.)
 
-### Scaffold Input Modes
-The `--scaffolds` parameter supports two modes:
+## When Modifying This Codebase
+1. Add new processes in `modules/`, include in `workflows/denovo_query.nf`, and map containers in `nextflow.config`.
+2. Maintain `[sample_id, file(s)]` tuple structure for all channels.
+3. Add new parameters to `main.nf` and document in `README.md`.
+4. Update both the `singularity/` directory and `nextflow.config` for new/updated containers.
+5. Use `publishDir` with `mode: 'copy'` for all final outputs.
 
-1. **Multi-sample directory**: Provide directory path containing subdirectories, each with `scaffolds.fasta`
-   - Pattern: `--scaffolds '/path/to/assemblies'`
-   - Structure: `assemblies/sample1/scaffolds.fasta`, `assemblies/sample2/scaffolds.fasta`, etc.
-   - Sample ID: Extracted from subdirectory name (e.g., `sample1`, `sample2`)
-
-2. **Direct file pattern**: Glob pattern for specific files
-   - Pattern: `--scaffolds '/path/to/*.fasta'`
-   - Sample ID: Extracted from base filename
-
-### SRA Resolution Pattern
-`SRAresolve` process splits accessions into PE/SE based on NCBI metadata using `esearch` + `efetch`:
-- Outputs: `NCBI_SRR_PE_accessions.txt` and `NCBI_SRR_SE_accessions.txt`
-- Accepts any SRA accession type (SRR, SRX, SRP, PRJNA)
-- Uses `maxForks = 50` in config to limit concurrent downloads
-
-### Resource Management
-**SPAdes-specific cleanup**: Module deletes intermediate directories (`K*/`, `corrected/`, `tmp/`) and input FASTQ files after assembly to save disk space. This is critical for large-scale runs.
-
-**BLAST workflow**: Creates temporary database per sample, searches, then deletes database files immediately.
-
-### Output Organization
-```
-nf_output/
-├── spades_assemblies/         # Contigs and scaffolds per sample
-├── spades_stats/              # Assembly logs
-├── quast_reports/             # Per-sample QUAST reports
-├── assembly_summary_metrics.tsv  # Aggregated QC metrics
-├── blast_results/             # Raw BLAST TSV outputs
-├── blast_hit_sequences/       # Extracted hit regions (FASTA + info TSV)
-├── all_blast_hits.fasta       # Combined hits from all samples
-└── all_blast_hits_summary.tsv # Combined hit metadata
-```
-
-## Integration Points
-
-### External Services
-- **NCBI SRA**: Accessed via `entrez-direct` and `sra-tools` in containers
-- **LEGserv**: Lab file server for genomic data (paths like `/legserv/NGS_data/`)
-
-### Tool Versions (in containers)
-- SPAdes: 4.2.0
-- QUAST: 5.3.0
-- BLAST+: 2.17.0
-- entrez-direct: 24.0
-- sra-tools: 3.2.1
-- samtools: 1.22.1 (for FASTA indexing in BLAST hit extraction)
-
-### Key Files Referenced Across Modules
-- `params.outdir`: All publishDir paths use this variable
-- `params.NCBI_API_key`: Implicitly used by entrez-direct (environment variable injection expected)
-- Process tag: Always format as `"ProcessName: ${sample_id}"` for logging
-
-## Current Development Status
-
-**Status**: EARLY DRAFT - core assembly + BLAST pipeline functional
-
-**Working modules**:
-- SRA download and resolution (PE/SE splitting)
-- SPAdes assembly with cleanup
-- QUAST QC with metric summarization
-- BLAST search and hit extraction
-
-**Known limitations** (per README):
-- Single-end SRA reads are downloaded but not yet fully integrated into SPAdes assembly path
-- No variant calling or reference-based mapping implemented
-- BLAST hit extraction debugging output still present in `extract_blast_hits.nf`
-
-## When Editing This Codebase
-
-1. **Adding new processes**: Create in `modules/`, include in `workflows/denovo_query.nf`, add container mapping in `nextflow.config`
-2. **Channel modifications**: Maintain `[sample_id, file(s)]` tuple structure
-3. **New parameters**: Add to `main.nf` params list, document in README example runs
-4. **Container updates**: Update both the `singularity/` directory filename and `nextflow.config` container path
-5. **Output files**: Use `publishDir` with `mode: 'copy'` (not symlinks) for final outputs
+## Known Limitations
+- Single-end SRA reads are downloaded but not yet fully integrated into assembly.
+- No variant calling or reference-based mapping.
+- Some debug output remains in `extract_blast_hits.nf`.
