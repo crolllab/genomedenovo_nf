@@ -135,7 +135,7 @@ process ExtractBlastHits {
 
 // Process to combine all extracted hit sequences for a specific query
 process CombineBlastHits {
-    tag "Combining BLAST hits for query: ${query_id}"
+    tag "Combining BLAST hits for ${query_id}"
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
     
     input:
