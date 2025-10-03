@@ -1,17 +1,17 @@
 // Process to extract top BLAST hit regions from assemblies
 process ExtractBlastHits {
-    tag "Extract BLAST hits: ${sample_id}"
+    tag "Extract BLAST hits for ${query_id}"
     errorStrategy 'ignore'
     memory '2GB'
     cpus 1
-    publishDir "${params.outdir}/blast_hit_sequences", mode: 'copy'
+    publishDir "${params.outdir}/${query_id}/blast_hit_sequences", mode: 'copy'
     
     input:
-    tuple val(sample_id), path(blast_results), path(scaffolds_fasta)
+    tuple val(query_id), val(sample_id), path(blast_results), path(scaffolds_fasta)
     
     output:
-    tuple val(sample_id), path("${sample_id}_top_hits.fasta"), emit: sequences
-    path "${sample_id}_top_hits_info.tsv", emit: hit_info
+    tuple val(query_id), val(sample_id), path("${sample_id}_top_hits.fasta"), emit: sequences
+    tuple val(query_id), path("${sample_id}_top_hits_info.tsv"), emit: hit_info
     
     script:
     """
@@ -133,18 +133,17 @@ process ExtractBlastHits {
     """
 }
 
-// Process to combine all extracted hit sequences
+// Process to combine all extracted hit sequences for a specific query
 process CombineBlastHits {
-    tag "Combining all BLAST hit sequences"
-    publishDir "${params.outdir}", mode: 'copy'
+    tag "Combining BLAST hits for query: ${query_id}"
+    publishDir "${params.outdir}/${query_id}", mode: 'copy'
     
     input:
-    path hit_sequences
-    path hit_info_files
+    tuple val(query_id), path(hit_sequences), path(hit_info_files)
     
     output:
-    path "all_blast_hits.fasta", emit: combined_sequences
-    path "all_blast_hits_summary.tsv", emit: summary
+    tuple val(query_id), path("${query_id}_all_blast_hits.fasta"), emit: combined_sequences
+    tuple val(query_id), path("${query_id}_all_blast_hits_summary.tsv"), emit: summary
     
     script:
     """
@@ -157,13 +156,13 @@ process CombineBlastHits {
         if [ -f "\$fasta" ] && [ -s "\$fasta" ]; then
             cat "\$fasta"
         fi
-    done > all_blast_hits.fasta
+    done > ${query_id}_all_blast_hits.fasta
     
     # Combine all TSV files and add NO HIT entries for samples without hits
     first_file=\$(ls *_top_hits_info.tsv 2>/dev/null | head -n 1 || echo "")
     if [ -n "\$first_file" ]; then
         # Create header
-        head -n 1 "\$first_file" > all_blast_hits_summary.tsv
+        head -n 1 "\$first_file" > ${query_id}_all_blast_hits_summary.tsv
         
         # Process each TSV file
         for file in *_top_hits_info.tsv; do
@@ -174,15 +173,15 @@ process CombineBlastHits {
             line_count=\$(wc -l < "\$file")
             if [ "\$line_count" -gt 1 ]; then
                 # File has hits, add them
-                tail -n +2 "\$file" >> all_blast_hits_summary.tsv
+                tail -n +2 "\$file" >> ${query_id}_all_blast_hits_summary.tsv
             else
                 # File has only header (no hits), add no_hits_found entry
-                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA" >> all_blast_hits_summary.tsv
+                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA" >> ${query_id}_all_blast_hits_summary.tsv
             fi
         done
     else
-        echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > all_blast_hits_summary.tsv
-        echo "No BLAST hit files found" >> all_blast_hits_summary.tsv
+        echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > ${query_id}_all_blast_hits_summary.tsv
+        echo "No BLAST hit files found" >> ${query_id}_all_blast_hits_summary.tsv
     fi
     """
 }

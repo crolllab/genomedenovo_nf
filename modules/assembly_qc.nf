@@ -1,9 +1,9 @@
 // QUAST process for assembly quality assessment
 process QUAST {
-    tag "QUAST assessment: ${sample_id}"
+    tag "QUAST assessment"
     errorStrategy 'ignore'
     memory '4GB'
-    cpus 2
+    cpus 1
     publishDir "${params.outdir}/quast_reports", mode: 'copy', pattern: "${sample_id}_quast"
     
     input:

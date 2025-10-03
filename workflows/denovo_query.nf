@@ -7,7 +7,7 @@ include { SRAresolve } from '../modules/resolve_SRA'
 include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
 include { SPAdes } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
-include { BLASTn } from '../modules/blast_search'
+include { SplitQuerySequences; BLASTn } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { AlignMAFFT } from '../modules/align_mafft'
 
@@ -135,29 +135,76 @@ workflow denovo_query {
     // ---------------------
     // BLAST analysis
     // ---------------------
-// BLAST analysis
-if (params.blast_query) {
-    blast_query_file = file(params.blast_query)
-    
-    // Run BLAST on all scaffolds
-    BLASTn(all_scaffolds_ch, blast_query_file)
-    
-     // Join BLAST results with scaffold files for extraction
-    blast_with_scaffolds = BLASTn.out.results.join(all_scaffolds_ch)
-    
-    // Extract hit regions from assemblies
-    ExtractBlastHits(blast_with_scaffolds)
-    
-    // Combine all extracted sequences
-    all_hit_sequences = ExtractBlastHits.out.sequences.map { it[1] }.collect()
-    all_hit_info = ExtractBlastHits.out.hit_info.collect()
-    
-    CombineBlastHits(all_hit_sequences, all_hit_info)
-    
-    // ---------------------
-    // Multiple sequence alignment
-    // ---------------------
-    // Run MAFFT alignment on the combined BLAST hit sequences
-    AlignMAFFT(CombineBlastHits.out.combined_sequences)
-}
+    if (params.blast_query) {
+        blast_query_file = file(params.blast_query)
+        
+        // Split query file into individual sequences
+        SplitQuerySequences(blast_query_file)
+        
+        // Create channel of individual query files with query IDs
+        individual_queries = SplitQuerySequences.out.individual_queries
+            .flatten()
+            .map { query_file ->
+                // Extract query ID from filename: query_1_seqname.fasta -> seqname
+                def filename = query_file.name
+                def query_id = filename.replaceAll(/^query_\d+_/, '').replaceAll(/\.fasta$/, '')
+                [query_id, query_file]
+            }
+        
+        // Combine scaffolds with each query for BLAST
+        // Creates: [sample_id, scaffolds_fasta, query_id, query_fasta]
+        blast_input = all_scaffolds_ch
+            .combine(individual_queries)
+            .map { sample_id, scaffolds_fasta, query_id, query_fasta ->
+                [sample_id, scaffolds_fasta, query_id, query_fasta]
+            }
+        
+        // Run BLAST on all scaffolds vs each query
+        BLASTn(blast_input)
+        
+        // Join BLAST results with scaffold files for extraction
+        // Remap BLAST results to [sample_id, [query_id, blast_results]]
+        // and join with [sample_id, scaffolds_fasta]
+        // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
+        blast_remapped = BLASTn.out.results
+            .map { query_id, sample_id, blast_results -> 
+                [sample_id, [query_id, blast_results]]
+            }
+        
+        scaffolds_for_join = all_scaffolds_ch.map { sample_id, scaffolds -> 
+            [sample_id, scaffolds]
+        }
+        
+        blast_with_scaffolds = blast_remapped
+            .combine(scaffolds_for_join, by: 0)
+            .map { sample_id, blast_info, scaffolds_fasta ->
+                def query_id = blast_info[0]
+                def blast_results = blast_info[1]
+                [query_id, sample_id, blast_results, scaffolds_fasta]
+            }
+        
+        // Extract hit regions from assemblies
+        ExtractBlastHits(blast_with_scaffolds)
+        
+        // Group by query_id for combining
+        sequences_by_query = ExtractBlastHits.out.sequences
+            .map { query_id, sample_id, fasta -> [query_id, fasta] }
+            .groupTuple()
+        
+        hit_info_by_query = ExtractBlastHits.out.hit_info
+            .groupTuple()
+        
+        // Combine sequences and hit info for each query
+        combined_by_query = sequences_by_query
+            .join(hit_info_by_query)
+        
+        // Combine all extracted sequences for each query
+        CombineBlastHits(combined_by_query)
+        
+        // ---------------------
+        // Multiple sequence alignment
+        // ---------------------
+        // Run MAFFT alignment on each query's combined BLAST hit sequences
+        AlignMAFFT(CombineBlastHits.out.combined_sequences)
+    }
 }
