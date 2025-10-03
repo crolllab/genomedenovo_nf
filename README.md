@@ -227,8 +227,8 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - `{query_id}/blast_hit_sequences/`: Folder containing extracted hit sequences
   - `{sample_id}_top_hits.fasta`: FASTA file with extracted hit sequences
   - `{sample_id}_top_hits_info.tsv`: Metadata table for each hit
-- `{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA file with all hits for this query
-- `{query_id}/{query_id}_all_blast_hits_summary.tsv`: Combined metadata table for this query
+- `{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA file with **query sequence first**, then all hits for this query
+- `{query_id}/{query_id}_all_blast_hits_summary.tsv`: Combined metadata table for this query (hits only, not query)
 
 ### Merged BLAST summary
 - **`blast_summary_merged.tsv`**: Wide-format table merging results from all queries
@@ -256,7 +256,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **Assembly quality assessment with QUAST**: Each assembled genome is evaluated using QUAST, producing both per-sample reports and a combined summary table.
 
-- **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLASTn. The top hits are extracted, and both per-sample and combined FASTA files and metadata tables are generated.
+- **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLAST (automatically selects blastn for nucleotide queries or tblastn for protein queries). The top hits are extracted with optional flanking sequence padding. Combined FASTA files include the original query sequence first, followed by all BLAST hits, making them ready for downstream analysis like multiple sequence alignment.
 
 - **Multiple sequence alignment with MAFFT**: The extracted BLAST hit sequences from each sample are aligned using MAFFT with `--auto` and `--adjustdirection` options. This produces both per-sample alignments and a combined alignment of all sequences from all samples.
 

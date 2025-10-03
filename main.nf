@@ -1,15 +1,12 @@
 #!/usr/bin/env nextflow
 
 params.outdir = "./nf_output/"
-params.reference = ""
 params.reads = ""
 params.SRA_index = ""
-params.ploidy = ""
 params.NCBI_API_key = ""
-params.keep_bam_gvcf = "false"  // or "true"
 params.blast_query = ""
 params.scaffolds = ""
-params.padding = 0  // Number of bp to extend BLAST hit sequences on both sides
+params.padding = 100  // Number of bp to extend BLAST hit sequences on both sides
 
 
 include { denovo_query } from './workflows/denovo_query.nf'
@@ -25,7 +22,6 @@ log.info """
    
    Configuration:
      outdir         : ${params.outdir}
-     reference      : ${params.reference}
      local fastq    : ${params.reads}
      local scaffolds: ${params.scaffolds}
      blast query    : ${params.blast_query}

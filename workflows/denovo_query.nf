@@ -210,11 +210,16 @@ workflow denovo_query {
         hit_info_by_query = ExtractBlastHits.out.hit_info
             .groupTuple()
         
+        // Join with query sequences to include in output
+        queries_for_combine = individual_queries
+            .map { query_id, query_file -> [query_id, query_file] }
+        
         // Combine sequences and hit info for each query
-        combined_by_query = sequences_by_query
+        combined_by_query = queries_for_combine
+            .join(sequences_by_query)
             .join(hit_info_by_query)
         
-        // Combine all extracted sequences for each query
+        // Combine all extracted sequences for each query (with query sequence prepended)
         CombineBlastHits(combined_by_query)
         
         // ---------------------

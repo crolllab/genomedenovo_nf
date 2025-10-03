@@ -206,7 +206,7 @@ process CombineBlastHits {
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
     
     input:
-    tuple val(query_id), path(hit_sequences), path(hit_info_files)
+    tuple val(query_id), path(query_fasta), path(hit_sequences), path(hit_info_files)
     
     output:
     tuple val(query_id), path("${query_id}_all_blast_hits.fasta"), emit: combined_sequences
@@ -217,13 +217,21 @@ process CombineBlastHits {
     #!/bin/bash
     set -euo pipefail
     
-    # Combine all FASTA files (skip empty files)
+    # First, add the query sequence to the combined FASTA
+    if [ -f "${query_fasta}" ]; then
+        cat "${query_fasta}" > ${query_id}_all_blast_hits.fasta
+        echo "" >> ${query_id}_all_blast_hits.fasta
+    else
+        touch ${query_id}_all_blast_hits.fasta
+    fi
+    
+    # Then combine all BLAST hit FASTA files (skip empty files)
     # Use specific pattern to avoid reading the output file
     for fasta in *_top_hits.fasta; do
         if [ -f "\$fasta" ] && [ -s "\$fasta" ]; then
-            cat "\$fasta"
+            cat "\$fasta" >> ${query_id}_all_blast_hits.fasta
         fi
-    done > ${query_id}_all_blast_hits.fasta
+    done
     
     # Combine all TSV files and add NO HIT entries for samples without hits
     first_file=\$(ls *_top_hits_info.tsv 2>/dev/null | head -n 1 || echo "")
