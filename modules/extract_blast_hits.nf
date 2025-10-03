@@ -18,15 +18,14 @@ process ExtractBlastHits {
     #!/bin/bash
     set -euo pipefail
     
+    # Create header for hit info file
+    echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > ${sample_id}_top_hits_info.tsv
+    
     # Check if BLAST results file exists and is not empty
     if [ ! -s "${blast_results}" ]; then
-        echo "No BLAST hits found for ${sample_id}" > ${sample_id}_top_hits_info.tsv
         touch ${sample_id}_top_hits.fasta
         exit 0
     fi
-    
-    # Create header for hit info file
-    echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > ${sample_id}_top_hits_info.tsv
     
     # Extract top hit per query (highest bit score)
     awk -F'\t' '
@@ -49,7 +48,6 @@ process ExtractBlastHits {
     
     # Check if we have any hits
     if [ ! -s top_hits.tsv ]; then
-        echo "No BLAST hits passed filtering for ${sample_id}" > ${sample_id}_top_hits_info.tsv
         touch ${sample_id}_top_hits.fasta
         exit 0
     fi
@@ -161,12 +159,26 @@ process CombineBlastHits {
         fi
     done > all_blast_hits.fasta
     
-    # Combine all TSV files (keep header from first file only)
+    # Combine all TSV files and add NO HIT entries for samples without hits
     first_file=\$(ls *_top_hits_info.tsv 2>/dev/null | head -n 1 || echo "")
     if [ -n "\$first_file" ]; then
+        # Create header
         head -n 1 "\$first_file" > all_blast_hits_summary.tsv
+        
+        # Process each TSV file
         for file in *_top_hits_info.tsv; do
-            tail -n +2 "\$file" >> all_blast_hits_summary.tsv
+            # Extract sample ID from filename
+            sample_id=\$(basename "\$file" "_top_hits_info.tsv")
+            
+            # Check if file has data beyond the header
+            line_count=\$(wc -l < "\$file")
+            if [ "\$line_count" -gt 1 ]; then
+                # File has hits, add them
+                tail -n +2 "\$file" >> all_blast_hits_summary.tsv
+            else
+                # File has only header (no hits), add no_hits_found entry
+                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA" >> all_blast_hits_summary.tsv
+            fi
         done
     else
         echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > all_blast_hits_summary.tsv
