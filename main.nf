@@ -9,6 +9,7 @@ params.NCBI_API_key = ""
 params.keep_bam_gvcf = "false"  // or "true"
 params.blast_query = ""
 params.scaffolds = ""
+params.padding = 0  // Number of bp to extend BLAST hit sequences on both sides
 
 
 include { denovo_query } from './workflows/denovo_query.nf'
@@ -30,6 +31,7 @@ log.info """
      blast query    : ${params.blast_query}
      SRA ids file   : ${params.SRA_index}
      NCBI API key   : ${params.NCBI_API_key}
+     padding        : ${params.padding} bp
     """
 
 

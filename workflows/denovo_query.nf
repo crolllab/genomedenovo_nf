@@ -7,9 +7,10 @@ include { SRAresolve } from '../modules/resolve_SRA'
 include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
 include { SPAdes } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
-include { SplitQuerySequences; BLASTn } from '../modules/blast_search'
+include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { AlignMAFFT } from '../modules/align_mafft'
+include { MergeBlastSummaries } from '../modules/summarize_blast'
 
 // ---------------------
 // Main workflow
@@ -141,6 +142,14 @@ workflow denovo_query {
         // Split query file into individual sequences
         SplitQuerySequences(blast_query_file)
         
+        // Read query_info.tsv to get sequence types for each query
+        query_info_ch = SplitQuerySequences.out.query_info
+            .splitCsv(header: true, sep: '\t')
+            .map { row ->
+                // Map: [query_id, seq_type]
+                [row.Query_ID, row.Sequence_Type]
+            }
+        
         // Create channel of individual query files with query IDs
         individual_queries = SplitQuerySequences.out.individual_queries
             .flatten()
@@ -151,22 +160,29 @@ workflow denovo_query {
                 [query_id, query_file]
             }
         
+        // Join query files with their sequence types
+        queries_with_type = individual_queries
+            .join(query_info_ch)
+            .map { query_id, query_file, seq_type ->
+                [query_id, query_file, seq_type]
+            }
+        
         // Combine scaffolds with each query for BLAST
-        // Creates: [sample_id, scaffolds_fasta, query_id, query_fasta]
+        // Creates: [sample_id, scaffolds_fasta, query_id, query_fasta, seq_type]
         blast_input = all_scaffolds_ch
-            .combine(individual_queries)
-            .map { sample_id, scaffolds_fasta, query_id, query_fasta ->
-                [sample_id, scaffolds_fasta, query_id, query_fasta]
+            .combine(queries_with_type)
+            .map { sample_id, scaffolds_fasta, query_id, query_fasta, seq_type ->
+                [sample_id, scaffolds_fasta, query_id, query_fasta, seq_type]
             }
         
         // Run BLAST on all scaffolds vs each query
-        BLASTn(blast_input)
+        BLASTsearch(blast_input)
         
         // Join BLAST results with scaffold files for extraction
         // Remap BLAST results to [sample_id, [query_id, blast_results]]
         // and join with [sample_id, scaffolds_fasta]
         // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
-        blast_remapped = BLASTn.out.results
+        blast_remapped = BLASTsearch.out.results
             .map { query_id, sample_id, blast_results -> 
                 [sample_id, [query_id, blast_results]]
             }
@@ -200,6 +216,16 @@ workflow denovo_query {
         
         // Combine all extracted sequences for each query
         CombineBlastHits(combined_by_query)
+        
+        // ---------------------
+        // Merge BLAST summaries
+        // ---------------------
+        // Collect all summary TSV files and merge into a single wide-format table
+        all_summaries = CombineBlastHits.out.summary
+            .map { query_id, summary_file -> summary_file }
+            .collect()
+        
+        MergeBlastSummaries(all_summaries)
         
         // ---------------------
         // Multiple sequence alignment

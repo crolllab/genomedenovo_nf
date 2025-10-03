@@ -12,6 +12,7 @@ process SplitQuerySequences {
     output:
     path "query_*.fasta", emit: individual_queries
     path "query_info.tsv", emit: query_info
+    path "query_type.txt", emit: query_type
     
     script:
     """
@@ -19,7 +20,31 @@ process SplitQuerySequences {
     set -euo pipefail
     
     # Create info file with header
-    echo -e "Query_ID\tFilename\tSequence_Length" > query_info.tsv
+    echo -e "Query_ID\tFilename\tSequence_Length\tSequence_Type" > query_info.tsv
+    
+    # Function to detect sequence type (nucleotide or protein)
+    detect_sequence_type() {
+        local fasta_file=\$1
+        # Extract sequence (remove header lines)
+        seq=\$(grep -v "^>" "\$fasta_file" | tr -d '\n' | tr '[:lower:]' '[:upper:]')
+        
+        # Count nucleotide characters (A, T, G, C, U, N)
+        nuc_count=\$(echo "\$seq" | grep -o '[ATGCUN]' | wc -l)
+        total_count=\$(echo "\$seq" | wc -c)
+        
+        # If >95% are valid nucleotides, consider it nucleotide sequence
+        # Otherwise, it's protein
+        if [ \$total_count -gt 0 ]; then
+            nuc_percent=\$((nuc_count * 100 / total_count))
+            if [ \$nuc_percent -ge 95 ]; then
+                echo "nucleotide"
+            else
+                echo "protein"
+            fi
+        else
+            echo "unknown"
+        fi
+    }
     
     # Split FASTA file into individual sequences
     awk '
@@ -38,7 +63,6 @@ process SplitQuerySequences {
             print ">" seq_id > filename
             print seq > filename
             close(filename)
-            print seq_id "\t" filename "\t" length(seq) >> "query_info.tsv"
         }
         # Start new sequence
         seq_id = substr(\$0, 2)  # Remove ">" character
@@ -57,7 +81,6 @@ process SplitQuerySequences {
             print ">" seq_id > filename
             print seq > filename
             close(filename)
-            print seq_id "\t" filename "\t" length(seq) >> "query_info.tsv"
         }
     }' ${blast_query}
     
@@ -69,31 +92,66 @@ process SplitQuerySequences {
     fi
     
     echo "Split \$query_count sequences from ${blast_query}"
+    
+    # Detect sequence type for each query file and update query_info.tsv
+    first_seq_type=""
+    all_same_type=true
+    
+    for query_file in query_*.fasta; do
+        if [ -f "\$query_file" ]; then
+            seq_id=\$(grep "^>" "\$query_file" | sed 's|^>||' | head -n 1)
+            seq_len=\$(grep -v "^>" "\$query_file" | tr -d '\n' | wc -c)
+            seq_type=\$(detect_sequence_type "\$query_file")
+            
+            # Track if all sequences are the same type
+            if [ -z "\$first_seq_type" ]; then
+                first_seq_type="\$seq_type"
+            elif [ "\$seq_type" != "\$first_seq_type" ]; then
+                all_same_type=false
+            fi
+            
+            echo -e "\${seq_id}\t\${query_file}\t\${seq_len}\t\${seq_type}" >> query_info.tsv
+        fi
+    done
+    
+    # Write dominant sequence type to query_type.txt for downstream use
+    if [ "\$all_same_type" = true ]; then
+        echo "\$first_seq_type" > query_type.txt
+        echo "All queries are \$first_seq_type sequences"
+    else
+        # If mixed, default to nucleotide (safer choice)
+        echo "mixed" > query_type.txt
+        echo "WARNING: Mixed sequence types detected. Using nucleotide BLAST by default."
+    fi
     """
 }
 
-// BLAST process definition (create this in modules/blast_search.nf)
-process BLASTn {
-    tag "BLAST search: ${sample_id} vs ${query_id}"
+// BLAST process definition - supports both blastn (nucleotide) and tblastn (protein)
+process BLASTsearch {
+    tag "BLAST search for ${query_id} (${seq_type})"
     errorStrategy 'ignore'
     memory '4GB'
     cpus 4
     publishDir "${params.outdir}/${query_id}/blast_results", mode: 'copy'
     
     input:
-    tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta)
+    tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)
     
     output:
     tuple val(query_id), val(sample_id), path("${sample_id}_blast_results.tsv"), emit: results
     path "${sample_id}_blast_results.tsv"
     
     script:
+    // Choose BLAST tool based on sequence type
+    def blast_tool = (seq_type == "protein") ? "tblastn" : "blastn"
     """
     # Create BLAST database from scaffolds
     makeblastdb -in ${scaffolds_fasta} -dbtype nucl -out ${sample_id}_db
     
-    # Run BLAST search
-    blastn -query ${query_fasta} \\
+    # Run appropriate BLAST search based on query type
+    echo "Running ${blast_tool} for ${seq_type} query: ${query_id}"
+    
+    ${blast_tool} -query ${query_fasta} \\
            -db ${sample_id}_db \\
            -out ${sample_id}_blast_results.tsv \\
            -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore" \\

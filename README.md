@@ -77,6 +77,19 @@ Available parameters
 
 - `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
 
+- `--blast_query`: Optional. Provide a FASTA file containing query sequence(s) for BLAST search against assembled genomes. The pipeline automatically detects whether queries are **nucleotide** or **protein** sequences:
+  - **Nucleotide queries** (DNA/RNA): Uses `blastn` for direct nucleotide comparison
+  - **Protein queries** (amino acids): Uses `tblastn` to search translated genome sequences
+  - Supports multi-sequence FASTA files - each sequence is processed independently
+  - Detection: Sequences with ≥95% ATGCUN characters are classified as nucleotide, otherwise protein
+  - See `FEATURE_blast_tool_selection.md` for details on detection logic
+
+- `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `0` (extract exact hit region only).
+  - Example: `--padding 100` extracts hit region plus 100 bp upstream and 100 bp downstream
+  - Useful for capturing regulatory regions, promoters, or getting more context around hits
+  - Automatically ensures coordinates stay within scaffold boundaries
+  - Padded coordinates shown in FASTA headers; original BLAST coordinates saved in TSV files
+
 - `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. 
   
   **Two input modes supported:**
@@ -202,19 +215,37 @@ Notes on the execution:
 
 The pipeline will produce the following output files in the specified `--outdir`:
 
+### Assembly outputs
 - `assembly_stats.tsv`: Table with assembly statistics for all samples
-- `quast_report.html`: Interactive HTML report from QUAST
-- `blast_hit_sequences/`: Folder containing per-sample BLAST hit sequences and metadata tables
-  - `{sample_id}_top_hits.fasta`: FASTA file with extracted hit sequences for
-  - `{sample_id}_top_hits_info.tsv`: Metadata table for each hit, including sample ID, contig ID, percent identity, alignment length, e-value, bit score, etc.
-- `all_blast_hits.fasta`: Combined FASTA file with all hit sequences from all samples
-- `all_blast_hits_summary.tsv`: Combined metadata table with Sample_ID column
 - `assembly_summary_metrics.tsv`: Table with QUAST metrics for all samples
-- `mafft_alignments/`: Folder containing per-sample multiple sequence alignments
-  - `{sample_id}_aligned.fasta`: MAFFT alignment for BLAST hit sequences from each sample
-  - `{sample_id}_alignment_log.txt`: MAFFT alignment log and statistics
-- `all_sequences_aligned.fasta`: Combined multiple sequence alignment of all BLAST hits from all samples
-- `mafft_alignment_summary.txt`: Summary report of all MAFFT alignments
+- `quast_report.html`: Interactive HTML report from QUAST
+
+### BLAST outputs (per query)
+When multiple query sequences are provided, outputs are organized by query ID:
+- `{query_id}/blast_results/`: Folder containing raw BLAST results for each sample
+  - `{sample_id}_blast_results.tsv`: Raw BLAST output in tabular format
+- `{query_id}/blast_hit_sequences/`: Folder containing extracted hit sequences
+  - `{sample_id}_top_hits.fasta`: FASTA file with extracted hit sequences
+  - `{sample_id}_top_hits_info.tsv`: Metadata table for each hit
+- `{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA file with all hits for this query
+- `{query_id}/{query_id}_all_blast_hits_summary.tsv`: Combined metadata table for this query
+
+### Merged BLAST summary
+- **`blast_summary_merged.tsv`**: Wide-format table merging results from all queries
+  - First column: Sample_ID
+  - For each query: 5 essential columns with query-prefixed names:
+    - `{query}_Present`: TRUE/FALSE flag indicating if hit was found
+    - `{query}_Identity`: Percent identity of alignment
+    - `{query}_AlignLen`: Alignment length in bp
+    - `{query}_Evalue`: E-value
+    - `{query}_BitScore`: Bit score
+  - Example: With queries wagA, wagB, wagC → 1 + (5 × 3) = 16 columns total
+  - Detailed information (Query ID, Subject ID, coordinates) available in per-query files
+
+### Alignment outputs
+- `mafft_alignments/`: Folder containing per-query multiple sequence alignments
+  - `{query_id}_aligned.fasta`: MAFFT alignment for all BLAST hits for this query
+  - `{query_id}_alignment_log.txt`: MAFFT alignment log and statistics
 
 
 ## Description of pipeline steps

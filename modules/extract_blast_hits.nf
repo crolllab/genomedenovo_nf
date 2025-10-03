@@ -18,6 +18,9 @@ process ExtractBlastHits {
     #!/bin/bash
     set -euo pipefail
     
+    # Padding value (bp to extend on both sides)
+    PADDING=${params.padding}
+    
     # Create header for hit info file
     echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > ${sample_id}_top_hits_info.tsv
     
@@ -71,8 +74,56 @@ process ExtractBlastHits {
             reverse=true
         fi
         
+        # Store original coordinates for TSV output
+        orig_start=\$start
+        orig_end=\$end
+        
+        # Apply padding - extend coordinates by PADDING bp on both sides
+        # Get scaffold length from FASTA index
+        scaffold_len=\$(awk -v seq="\$sseqid" '\$1==seq {print \$2}' "${scaffolds_fasta}.fai")
+        
+        # Sanity check: Ensure scaffold length was found
+        if [ -z "\$scaffold_len" ] || [ "\$scaffold_len" -lt 1 ]; then
+            echo "WARNING: Could not determine length for scaffold \$sseqid, skipping..." >&2
+            continue
+        fi
+        
+        # Sanity check: Ensure original coordinates are valid
+        if [ "\$start" -lt 1 ] || [ "\$end" -gt "\$scaffold_len" ] || [ "\$start" -gt "\$end" ]; then
+            echo "WARNING: Invalid coordinates for \$sseqid (\$start-\$end), scaffold length is \$scaffold_len, skipping..." >&2
+            continue
+        fi
+        
+        # Calculate padded coordinates
+        padded_start=\$(( start - PADDING ))
+        padded_end=\$(( end + PADDING ))
+        
+        # Ensure padded coordinates are within scaffold boundaries
+        if [ "\$padded_start" -lt 1 ]; then
+            padded_start=1
+        fi
+        
+        if [ "\$padded_end" -gt "\$scaffold_len" ]; then
+            padded_end=\$scaffold_len
+        fi
+        
+        # Final sanity check: Ensure padded coordinates are valid
+        if [ "\$padded_start" -lt 1 ] || [ "\$padded_end" -gt "\$scaffold_len" ] || [ "\$padded_start" -gt "\$padded_end" ]; then
+            echo "WARNING: Invalid padded coordinates for \$sseqid (\$padded_start-\$padded_end), scaffold length is \$scaffold_len, skipping..." >&2
+            continue
+        fi
+        
+        # Use padded coordinates for extraction
+        start=\$padded_start
+        end=\$padded_end
+        
+        # Log extraction details (useful for debugging)
+        if [ \$PADDING -gt 0 ]; then
+            echo "Extracting \$sseqid:\$start-\$end (original: \$orig_start-\$orig_end, padding: \$PADDING bp, scaffold_len: \$scaffold_len)" >&2
+        fi
+        
         # Extract sequence using samtools faidx with proper coordinate format
-        if samtools faidx "${scaffolds_fasta}" "\${sseqid}:\${start}-\${end}" > temp_hit.fasta 2>/dev/null; then
+        if samtools faidx "${scaffolds_fasta}" "\${sseqid}:\${start}-\${end}" > temp_hit.fasta 2>temp_samtools_error.log; then
             # Extract just the sequence (no header)
             tail -n +2 temp_hit.fasta | tr -d '\n' > temp_seq.txt
             
@@ -83,20 +134,28 @@ process ExtractBlastHits {
                 mv temp_rc.txt temp_seq.txt
             fi
             
-            # Write sequence with informative header
+            # Write sequence with informative header (show padded coordinates)
             echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
             fold -w 60 temp_seq.txt >> ${sample_id}_top_hits.fasta
             echo "" >> ${sample_id}_top_hits.fasta
             
-            # Add hit information to TSV
-            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${start}\t\${end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+            # Add hit information to TSV (use original BLAST hit coordinates, not padded)
+            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+            rm temp_hit.fasta temp_seq.txt temp_samtools_error.log 2>/dev/null || true
         else
+            # Log samtools error details
+            echo "WARNING: samtools faidx failed for \${sseqid}:\${start}-\${end} (scaffold_len: \${scaffold_len}), trying fallback method..." >&2
+            if [ -f temp_samtools_error.log ] && [ -s temp_samtools_error.log ]; then
+                echo "  samtools error: \$(cat temp_samtools_error.log)" >&2
+            fi
+            rm temp_samtools_error.log 2>/dev/null || true
+            
             # Fallback: Try extracting full sequence and manually cutting
             if samtools faidx "${scaffolds_fasta}" "\${sseqid}" 2>/dev/null | tail -n +2 | tr -d '\n' > temp_full_seq.txt; then
                 # Get length of sequence
                 seqlen=\$(wc -c < temp_full_seq.txt)
                 
-                # Validate coordinates
+                # Validate padded coordinates
                 if [ "\$end" -le "\$seqlen" ] && [ "\$start" -gt 0 ]; then
                     # Extract substring (1-indexed for cut)
                     cat temp_full_seq.txt | cut -c\${start}-\${end} > temp_subseq.txt
@@ -113,13 +172,21 @@ process ExtractBlastHits {
                         fold -w 60 temp_subseq.txt >> ${sample_id}_top_hits.fasta
                         echo "" >> ${sample_id}_top_hits.fasta
                         
-                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${start}\t\${end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+                        # Use original coordinates in TSV
+                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+                    else
+                        echo "ERROR: Fallback method failed - extracted sequence is empty for \${sseqid}:\${start}-\${end}" >&2
                     fi
+                else
+                    echo "ERROR: Fallback method failed - coordinates out of bounds for \${sseqid} (start:\$start end:\$end seqlen:\$seqlen)" >&2
                 fi
+            else
+                echo "ERROR: Fallback method failed - could not extract full sequence for \${sseqid}" >&2
             fi
         fi
         
-        rm -f temp_hit.fasta temp_seq.txt temp_rc.txt temp_full_seq.txt temp_subseq.txt
+        # Clean up all temporary files
+        rm -f temp_hit.fasta temp_seq.txt temp_rc.txt temp_full_seq.txt temp_subseq.txt temp_samtools_error.log
         
     done < top_hits.tsv
     
