@@ -1,4 +1,4 @@
-![alt text](https://github.com/nextflow-io/nextflow/raw/master/docs/_static/nextflow-logo-bg-light.png)
+![alt text](https://github.com/crolllab/genomedenovo_nf/blob/main/logo.png?raw=true)
 
 Pipeline to assemble and query draft genomes
 ========================================
