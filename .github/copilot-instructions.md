@@ -18,8 +18,9 @@ This project is a **Nextflow DSL2 pipeline** for de novo genome assembly and BLA
 ## Developer Workflows
 - **Environment**: Always activate the `nf_gp_env` micromamba environment before running Nextflow.
 - **Running**: Use `nextflow run main.nf -config nextflow.config ...` with appropriate `-profile` (`local`, `local_highCPU`, `slurm`). See `run.sh` for examples.
-- **Testing**: Use `local_highCPU` for development/testing with small datasets. Use `-resume` to skip completed steps.
+- **Testing**: Use `local_highCPU` for development/testing with small datasets. Use `-resume` to skip completed steps. Run `./validate_syntax.sh` for quick syntax checks.
 - **Debugging**: Most processes use `errorStrategy 'ignore'` to allow the pipeline to continue on sample failure. Logs rotate as `.nextflow.log.*`.
+- **Memory management**: Critical for large sample sets - use `maxForks` limits in `nextflow.config` to prevent memory exhaustion on concurrent processes.
 
 ## Project-Specific Conventions
 - **FASTQ naming**: Paired-end reads must match patterns like `*_1.fq.gz`, `*_R1.fq.gz`, or `*_R1_001.fq.gz`. See `README.md` for glob patterns.
@@ -27,6 +28,7 @@ This project is a **Nextflow DSL2 pipeline** for de novo genome assembly and BLA
 - **Channel tuple structure**: All channels between modules use `[sample_id, file(s)]` for consistency.
 - **Containerization**: All tools run in local Singularity containers from `./singularity/`. Container paths are relative and must match the URL-encoded filenames in `nextflow.config` (e.g., `%3A` for `:`).
 - **Resource cleanup**: SPAdes modules delete intermediate files after assembly. BLAST modules remove temporary databases after search.
+- **Bash in Nextflow**: Use proper variable escaping (`\$` for bash vars) and avoid `/` delimiters in sed commands (use `|` instead). Always include `set -euo pipefail` for error handling.
 
 ## Output Organization
 All outputs are written to `nf_output/` (configurable via `--outdir`). Key subfolders:
@@ -49,3 +51,9 @@ All outputs are written to `nf_output/` (configurable via `--outdir`). Key subfo
 - Single-end SRA reads are downloaded but not yet fully integrated into assembly.
 - No variant calling or reference-based mapping.
 - Some debug output remains in `extract_blast_hits.nf`.
+
+## Common Pitfalls & Solutions
+- **Memory exhaustion**: With 100+ samples, set `maxForks` limits in `nextflow.config` for BLAST/QUAST processes to prevent system overload.
+- **Empty BLAST outputs**: Ensure proper bash variable escaping (`\$var`) and use `|` instead of `/` as sed delimiters in process scripts.
+- **Container path issues**: Singularity container names must be URL-encoded in `nextflow.config` (`:` becomes `%3A`).
+- **Channel mixing failures**: All input channels must emit `[sample_id, file(s)]` tuples before `.mix()` operations.
