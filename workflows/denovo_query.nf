@@ -5,7 +5,7 @@ nextflow.enable.dsl=2
 // ---------------------
 include { SRAresolve } from '../modules/resolve_SRA'
 include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
-include { SPAdes } from '../modules/assemble_spades'
+include { SPAdes; SPAdesSE } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
@@ -34,21 +34,23 @@ workflow denovo_query {
         // Input SRA index file
         sra_file_ch = Channel.fromPath(params.SRA_index)
         
-        // First run SRAresolve
+        // First run SRAresolve to get URLs
         SRAresolve(sra_file_ch)
         
-        // Then use its outputs to create channels for download processes
-        pe_ids = SRAresolve.out.pe_file
-            .splitText()
-            .map { it.trim() }
+        // Parse the URL file to create download tuples
+        pe_download_info = SRAresolve.out.url_file
+            .splitCsv(header: true, sep: '\t')
+            .filter { row -> row.Layout == 'PE' }
+            .map { row -> [row.SRR_ID, row.URL_1, row.URL_2, row.Source] }
         
-        se_ids = SRAresolve.out.se_file
-            .splitText()
-            .map { it.trim() }
+        se_download_info = SRAresolve.out.url_file
+            .splitCsv(header: true, sep: '\t')
+            .filter { row -> row.Layout == 'SE' }
+            .map { row -> [row.SRR_ID, row.URL_1, row.Source] }
         
-        // Now run downloads
-        SRAdownloadPE(pe_ids)
-        SRAdownloadSE(se_ids)
+        // Now run hybrid downloads (ENA first, fallback to NCBI)
+        SRAdownloadPE(pe_download_info)
+        SRAdownloadSE(se_download_info)
     }
 
     // ---------------------
@@ -69,20 +71,32 @@ workflow denovo_query {
             local_pe_formatted = Channel.empty()
         }
 
-        // Handle SRA reads
+        // Handle SRA paired-end reads
         if (params.SRA_index) {
             sra_pe_formatted = SRAdownloadPE.out.map { sample_id, read1, read2 ->
                 [sample_id, read1, read2]
             }
+            
+            // Handle SRA single-end reads
+            sra_se_formatted = SRAdownloadSE.out.map { sample_id, read ->
+                [sample_id, read]
+            }
         } else {
             sra_pe_formatted = Channel.empty()
+            sra_se_formatted = Channel.empty()
         }
 
+        // Combine PE reads from different sources
         combined_pe_ch = sra_pe_formatted.mix(local_pe_formatted)
 
-        // Run SPAdes assembly
+        // Run SPAdes assembly for paired-end
         SPAdes(combined_pe_ch)
-        spades_scaffolds = SPAdes.out.scaffolds
+        
+        // Run SPAdes assembly for single-end
+        SPAdesSE(sra_se_formatted)
+        
+        // Combine scaffolds from both PE and SE assemblies
+        spades_scaffolds = SPAdes.out.scaffolds.mix(SPAdesSE.out.scaffolds)
     } else {
         spades_scaffolds = Channel.empty()
     }

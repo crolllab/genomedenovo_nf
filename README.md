@@ -3,6 +3,8 @@
 Pipeline to assemble and query draft genomes
 ========================================
 
+***This is work in progress and not yet fully tested!***
+
 The `genomedenovo_nf` Nextflow pipeline performs denovo assembly of Illumina paired-end reads, assesses assembly quality, and searches for user-provided query sequences using BLAST. The pipeline supports providing assembled scaffolds, in addition local FASTQ files and downloading from NCBI SRA can be used to start SPAdes assembly assemblies.
 
 Implemented steps:
@@ -11,7 +13,7 @@ Implemented steps:
 - `spades`: denovo assembly of Illumina paired-end reads
 - `quast`: assembly quality assessment
 - `ncbi-blast+`: BLAST search of user-provided query sequence(s) against assembled genomes
-- `mafft`: multiple sequence alignment of extracted BLAST hits (optional)
+- `mafft`: multiple sequence alignment of extracted BLAST hits
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
@@ -211,6 +213,11 @@ Notes on the execution:
 
 The pipeline will produce the following output files in the specified `--outdir`:
 
+### SRA download outputs (if using --SRA_index)
+- `NCBI_SRR_PE_accessions.txt`: List of paired-end SRA accessions
+- `NCBI_SRR_SE_accessions.txt`: List of single-end SRA accessions
+- `NCBI_download_urls.tsv`: Download URLs and sources (ENA vs NCBI) for each accession
+
 ### Assembly outputs
 - `assembly_stats.tsv`: Table with assembly statistics for all samples
 - `assembly_summary_metrics.tsv`: Table with QUAST metrics for all samples
@@ -246,7 +253,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 ## Description of pipeline steps
 
-- **Download from NCBI SRA** (optional): Using `entrez-direct` and `sratools`, the pipeline can download FASTQ files from NCBI SRA based on provided accession IDs. The `--SRA_index` parameter accepts a file with one accession per line.
+- **Hybrid SRA Download** (optional): The pipeline uses a hybrid approach to download FASTQ files from SRA accessions. It first attempts fast direct downloads from ENA (European Nucleotide Archive), then automatically falls back to NCBI if needed. This significantly improves download speed while maintaining reliability. The `--SRA_index` parameter accepts a file with one accession per line. See `FEATURE_hybrid_sra_download.md` for details.
 
 - **Assembly with SPAdes**: The pipeline assembles Illumina paired-end reads using SPAdes with default parameters optimized for bacterial genomes. Each sample is processed independently.
 
