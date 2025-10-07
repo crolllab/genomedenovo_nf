@@ -16,6 +16,16 @@ process SRAdownloadPE {
     #!/bin/bash
     set -e
     
+    # Configure SRA-tools to use current directory for temp files
+    export NCBI_SETTINGS="\$PWD/.ncbi"
+    mkdir -p "\$NCBI_SETTINGS"
+    
+    # Create config to use current directory for cache and temp
+    cat > "\$NCBI_SETTINGS/user-settings.mkfg" << EOF
+/repository/user/main/public/root = "\$PWD"
+/repository/user/main/public/cache-enabled = "false"
+EOF
+    
     echo "Downloading $srr from $source"
     
     # Try ENA direct download if URLs are available
@@ -40,8 +50,9 @@ process SRAdownloadPE {
     # Fallback to NCBI prefetch/fasterq-dump
     echo "Downloading from NCBI..."
     
-    prefetch $srr
-    fasterq-dump $srr --split-files -O .
+    # Use --temp option to specify temp directory in current location
+    prefetch $srr --output-directory .
+    fasterq-dump $srr --split-files -O . --temp .
     
     # Verify we got paired-end files
     if [ ! -f "${srr}_1.fastq" ] || [ ! -f "${srr}_2.fastq" ]; then
@@ -80,6 +91,16 @@ process SRAdownloadSE {
     #!/bin/bash
     set -e
     
+    # Configure SRA-tools to use current directory for temp files
+    export NCBI_SETTINGS="\$PWD/.ncbi"
+    mkdir -p "\$NCBI_SETTINGS"
+    
+    # Create config to use current directory for cache and temp
+    cat > "\$NCBI_SETTINGS/user-settings.mkfg" << EOF
+/repository/user/main/public/root = "\$PWD"
+/repository/user/main/public/cache-enabled = "false"
+EOF
+    
     echo "Downloading $srr from $source"
     
     # Try ENA direct download if URL is available
@@ -104,8 +125,9 @@ process SRAdownloadSE {
     # Fallback to NCBI prefetch/fasterq-dump
     echo "Downloading from NCBI..."
     
-    prefetch $srr
-    fasterq-dump $srr --split-files -O .
+    # Use --temp option to specify temp directory in current location
+    prefetch $srr --output-directory .
+    fasterq-dump $srr --split-files -O . --temp .
     
     # Handle SE naming variations (might be .fastq or _1.fastq)
     if [ -f "${srr}.fastq" ]; then
