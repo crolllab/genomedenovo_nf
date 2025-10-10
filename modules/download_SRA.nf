@@ -77,7 +77,8 @@ EOF
             
             # Use explicit output file path (not --output-directory which creates subdirs)
             # This ensures download happens in work directory, not /tmp/
-            if prefetch $srr --output-file ncbi_download/${srr}.sra; then
+            # Set max-size to 100GB to handle large sequencing runs
+            if prefetch $srr --output-file ncbi_download/${srr}.sra --max-size 100G; then
                 # Override TMPDIR to force fasterq-dump to use work directory
                 # Even with --temp, fasterq-dump may use system TMPDIR for buffers
                 export TMPDIR="\$PWD/fasterq_tmp"
@@ -202,7 +203,8 @@ EOF
             mkdir -p fasterq_tmp
             
             # Use explicit output file path to ensure download in work directory
-            if prefetch $srr --output-file ncbi_download/${srr}.sra; then
+            # Set max-size to 100GB to handle large sequencing runs
+            if prefetch $srr --output-file ncbi_download/${srr}.sra --max-size 100G; then
                 # Override TMPDIR to force fasterq-dump to use work directory
                 export TMPDIR="\$PWD/fasterq_tmp"
                 
