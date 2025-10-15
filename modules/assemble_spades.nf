@@ -25,6 +25,7 @@ process SPAdes {
         -t ${task.cpus} \
         -m \$((${task.memory.toGiga()})) \
         --careful
+        --fungal
     
     # Clean up intermediate files to save space
     if [ -d "${sample_id}/K21" ]; then
