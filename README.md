@@ -5,19 +5,19 @@ Pipeline to assemble and query draft genomes
 
 ***This is work in progress and not yet fully tested!***
 
-The `genomedenovo_nf` Nextflow pipeline performs denovo assembly of Illumina paired-end reads, assesses assembly quality, and searches for user-provided query sequences using BLAST. The pipeline supports providing assembled scaffolds, in addition local FASTQ files and downloading from NCBI SRA can be used to start SPAdes assembly assemblies.
+The `genomedenovo_nf` Nextflow pipeline performs de novo assembly of Illumina paired-end reads, assesses assembly quality, and searches for user-provided query sequences using BLAST. The pipeline supports providing assembled scaffolds, in addition local FASTQ files and downloading from NCBI SRA can be used to start SPAdes assemblies.
 
 Implemented steps:
 - `entrez-direct`: query NCBI SRA for metadata (optional)
 - `sratools`: download SRA files (optional)
-- `spades`: denovo assembly of Illumina paired-end reads
+- `spades`: de novo assembly of Illumina paired-end and single-end reads
 - `quast`: assembly quality assessment
 - `ncbi-blast+`: BLAST search of user-provided query sequence(s) against assembled genomes
 - `mafft`: multiple sequence alignment of extracted BLAST hits
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
-Cloneing the repository
+Cloning the repository
 
 ```bash
 git clone git@github.com:crolllab/genomedenovo_nf.git
@@ -27,9 +27,8 @@ cd genomedenovo_nf
 Create a conda environment for Nextflow
 
 ```bash
-micromamba create -n nf_gp_env
+micromamba create -n nf_gp_env -c conda-forge -c bioconda nextflow
 micromamba activate nf_gp_env
-micromamba install -c bioconda nextflow
 ```
 
 ### Get singularity images  
@@ -56,6 +55,10 @@ singularity pull https://depot.galaxyproject.org/singularity/spades%3A4.2.0--haf
 singularity pull https://depot.galaxyproject.org/singularity/quast:5.3.0--py39pl5321heaaa4ec_0
 # NCBI BLAST+
 singularity pull https://depot.galaxyproject.org/singularity/blast%3A2.17.0--h66d330f_0
+# Samtools
+singularity pull https://depot.galaxyproject.org/singularity/samtools%3A1.22.1--h96c455f_0
+# seqkit
+singularity pull https://depot.galaxyproject.org/singularity/seqkit%3A2.10.1--he881be0_0
 # MAFFT
 singularity pull https://depot.galaxyproject.org/singularity/mafft%3A7.525--h031d066_1
 ```
@@ -86,9 +89,9 @@ Available parameters
   - Automatically ensures coordinates stay within scaffold boundaries
   - Padded coordinates shown in FASTA headers; original BLAST coordinates saved in TSV files
 
-- `--reads`: Optional. Provide the path to the folder containing the fastq read files. The pipeline will automatically find all paired read files based on the naming convention. Must be bracketed by single quotes `'`. See below for examples. Important: accepts only paired-end reads.
+- `--reads`: Optional. Provide the path to the folder containing the fastq read files. The pipeline will automatically find paired-end read files based on the naming convention. Must be bracketed by single quotes `'`. See below for examples. Note: Local file input currently supports paired-end reads only. Single-end reads are supported via `--SRA_index`.
 
-- `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
+- `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. The pipeline automatically handles both paired-end and single-end SRA reads. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
 
 - `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. 
 
@@ -115,8 +118,6 @@ The below example is based on the _Zymoseptoria tritici_ Illumina paired-end rea
 ### Select sets of local fastq file pairs
 
 The following examples show different ways to select paired-end fastq files. The `--reads` option must be bracketed by single quotes `'`. The examples assume that the read files are named according to the Illumina convention, i.e. ending with `_1.fq.gz` and `_2.fq.gz` or `_R1.fq.gz` and `_R2.fq.gz`. Adjust the patterns according to your own naming conventions.
-
-Note the use of `
 
 ```bash
 # Option 1 - select all fastq files ending with _1.fq.gz and _2.fq.gz
@@ -160,7 +161,7 @@ Save the text file e.g. as `SRA_accessions.txt`. The repository includes an exam
 # read selection example 1 (small set) - selects 9 paired-end reads from LEGserv
 READS='/legserv/NGS_data/Zymoseptoria/Illumina_DNAseq/Croll_2013/ST99CH_*_{1,2}.fq.gz'
 # read selection example 2 (very large set) - selects nearly all available paired-end DNA-seq datasets on LEGserv
-READS='/legserv/NGS_data/Zymoseptoria/Illumina_DNAseq/_{,R}{1,2}{,_001,_001_*}.{fq,fastq}.gz'
+READS='/legserv/NGS_data/Zymoseptoria/Illumina_DNAseq/*_{,R}{1,2}{,_001,_001_*}.{fq,fastq}.gz'
 ```
 
 Start the pipeline using `slurm` and processing local fastq files and NCBI accessions. Temporary files are written to `/scratch` and the output will be in the `my_nf_run_output` folder. The `SRA_accessions.txt` example file is included in the repository.
@@ -255,7 +256,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **Hybrid SRA Download** (optional): The pipeline uses a hybrid approach to download FASTQ files from SRA accessions. It first attempts fast direct downloads from ENA (European Nucleotide Archive), then automatically falls back to NCBI if needed. This significantly improves download speed while maintaining reliability. The `--SRA_index` parameter accepts a file with one accession per line. See `FEATURE_hybrid_sra_download.md` for details.
 
-- **Assembly with SPAdes**: The pipeline assembles Illumina paired-end reads using SPAdes with default parameters optimized for bacterial genomes. Each sample is processed independently.
+- **Assembly with SPAdes**: The pipeline assembles Illumina paired-end and single-end reads using SPAdes with default parameters optimized for fungal genomes. Each sample is processed independently.
 
 - **Assembly quality assessment with QUAST**: Each assembled genome is evaluated using QUAST, producing both per-sample reports and a combined summary table.
 
