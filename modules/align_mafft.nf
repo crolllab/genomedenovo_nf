@@ -10,18 +10,21 @@ process AlignMAFFT {
     tuple val(query_id), path(sequences_fasta)
     
     output:
-    tuple val(query_id), path("${query_id}_aligned_sequences.fasta"), emit: alignment
-    tuple val(query_id), path("${query_id}_mafft_alignment_log.txt"), emit: log
+    tuple val(query_id), path("*_aligned_sequences.fasta"), emit: alignment
+    tuple val(query_id), path("*_mafft_alignment_log.txt"), emit: log
     
     script:
     """
     #!/bin/bash
     set -euo pipefail
     
+    # Sanitize query_id for filename use (replace special characters)
+    clean_query_id="\$(echo '${query_id}' | sed 's|[^a-zA-Z0-9_.-]|_|g')"
+    
     # Check if sequences file exists and is not empty
     if [ ! -s "${sequences_fasta}" ]; then
-        echo "No sequences found for alignment" > ${query_id}_mafft_alignment_log.txt
-        touch ${query_id}_aligned_sequences.fasta
+        echo "No sequences found for alignment" > "\${clean_query_id}_mafft_alignment_log.txt"
+        touch "\${clean_query_id}_aligned_sequences.fasta"
         exit 0
     fi
     
@@ -30,27 +33,27 @@ process AlignMAFFT {
     
     # Check if we have enough sequences for alignment (at least 2)
     if [ "\$seq_count" -lt 2 ]; then
-        echo "Insufficient sequences for alignment (found \$seq_count sequences, need at least 2)" > ${query_id}_mafft_alignment_log.txt
+        echo "Insufficient sequences for alignment (found \$seq_count sequences, need at least 2)" > "\${clean_query_id}_mafft_alignment_log.txt"
         # Copy the input as output if only one sequence
-        cp "${sequences_fasta}" "${query_id}_aligned_sequences.fasta"
+        cp "${sequences_fasta}" "\${clean_query_id}_aligned_sequences.fasta"
         exit 0
     fi
     
-    echo "Starting MAFFT alignment with \$seq_count sequences" > ${query_id}_mafft_alignment_log.txt
-    echo "Input file: ${sequences_fasta}" >> ${query_id}_mafft_alignment_log.txt
-    echo "Command: mafft --auto --adjustdirection ${sequences_fasta}" >> ${query_id}_mafft_alignment_log.txt
-    echo "---" >> ${query_id}_mafft_alignment_log.txt
+    echo "Starting MAFFT alignment with \$seq_count sequences" > "\${clean_query_id}_mafft_alignment_log.txt"
+    echo "Input file: ${sequences_fasta}" >> "\${clean_query_id}_mafft_alignment_log.txt"
+    echo "Command: mafft --auto --adjustdirection ${sequences_fasta}" >> "\${clean_query_id}_mafft_alignment_log.txt"
+    echo "---" >> "\${clean_query_id}_mafft_alignment_log.txt"
     
     # Run MAFFT with auto mode and adjust directions
-    mafft --thread ${task.cpus} --auto --adjustdirection "${sequences_fasta}" > "${query_id}_aligned_sequences.fasta" 2>> ${query_id}_mafft_alignment_log.txt
+    mafft --thread ${task.cpus} --auto --adjustdirection "${sequences_fasta}" > "\${clean_query_id}_aligned_sequences.fasta" 2>> "\${clean_query_id}_mafft_alignment_log.txt"
     
     # Check if alignment was successful
-    if [ -s "${query_id}_aligned_sequences.fasta" ]; then
-        aligned_count=\$(grep -c "^>" "${query_id}_aligned_sequences.fasta" || echo "0")
-        echo "Alignment completed successfully with \$aligned_count sequences" >> ${query_id}_mafft_alignment_log.txt
+    if [ -s "\${clean_query_id}_aligned_sequences.fasta" ]; then
+        aligned_count=\$(grep -c "^>" "\${clean_query_id}_aligned_sequences.fasta" || echo "0")
+        echo "Alignment completed successfully with \$aligned_count sequences" >> "\${clean_query_id}_mafft_alignment_log.txt"
     else
-        echo "WARNING: Alignment output file is empty or missing" >> ${query_id}_mafft_alignment_log.txt
-        touch ${query_id}_aligned_sequences.fasta
+        echo "WARNING: Alignment output file is empty or missing" >> "\${clean_query_id}_mafft_alignment_log.txt"
+        touch "\${clean_query_id}_aligned_sequences.fasta"
     fi
     """
 }

@@ -108,7 +108,15 @@ workflow denovo_query {
         scaffolds_path = params.scaffolds
         
         // Check if it's a directory containing subdirectories with scaffolds.fasta
-        if (file(scaffolds_path).isDirectory()) {
+        if (scaffolds_path.contains('**') || scaffolds_path.contains('*')) {
+            // It's a glob pattern - use directly
+            local_scaffolds_ch = Channel
+                .fromPath(scaffolds_path, checkIfExists: true)
+                .map { file ->
+                    def sample_id = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
+                    [sample_id, file]
+                }
+        } else if (file(scaffolds_path).exists() && file(scaffolds_path).isDirectory()) {
             // Pattern to find scaffolds.fasta in subdirectories: parent_dir/*/scaffolds.fasta
             scaffolds_pattern = "${scaffolds_path}/*/scaffolds.{fasta,fa,fna}"
             
@@ -135,7 +143,20 @@ workflow denovo_query {
     // ---------------------
     // Combine all scaffolds for downstream analysis
     // ---------------------
-    all_scaffolds_ch = spades_scaffolds.mix(local_scaffolds_ch)
+    // Ensure both channels exist, even if empty
+    if (params.reads || params.SRA_index) {
+        if (params.scaffolds) {
+            all_scaffolds_ch = spades_scaffolds.mix(local_scaffolds_ch)
+        } else {
+            all_scaffolds_ch = spades_scaffolds
+        }
+    } else {
+        if (params.scaffolds) {
+            all_scaffolds_ch = local_scaffolds_ch
+        } else {
+            all_scaffolds_ch = Channel.empty()
+        }
+    }
 
     // ---------------------
     // Quality assessment
@@ -171,6 +192,9 @@ workflow denovo_query {
                 // Extract query ID from filename: query_1_seqname.fasta -> seqname
                 def filename = query_file.name
                 def query_id = filename.replaceAll(/^query_\d+_/, '').replaceAll(/\.fasta$/, '')
+                // Convert filesystem-safe characters back to original characters
+                // Replace _-_ at end with (-) and first _ with :
+                query_id = query_id.replaceAll(/_-_$/, '(-)').replaceAll(/_/, ':')
                 [query_id, query_file]
             }
         

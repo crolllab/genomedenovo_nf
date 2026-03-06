@@ -24,8 +24,7 @@ process SPAdes {
         -o ${sample_id} \
         -t ${task.cpus} \
         -m \$((${task.memory.toGiga()})) \
-        --careful
-        --fungal
+        --careful \
     
     # Clean up intermediate files to save space
     if [ -d "${sample_id}/K21" ]; then
@@ -79,7 +78,7 @@ process SPAdesSE {
         -o ${sample_id} \
         -t ${task.cpus} \
         -m \$((${task.memory.toGiga()})) \
-        --careful
+        --isolate
     
     # Clean up intermediate files to save space
     if [ -d "${sample_id}/K21" ]; then

@@ -209,27 +209,30 @@ process CombineBlastHits {
     tuple val(query_id), path(query_fasta), path(hit_sequences), path(hit_info_files)
     
     output:
-    tuple val(query_id), path("${query_id}_all_blast_hits.fasta"), emit: combined_sequences
-    tuple val(query_id), path("${query_id}_all_blast_hits_summary.tsv"), emit: summary
+    tuple val(query_id), path("*_all_blast_hits.fasta"), emit: combined_sequences
+    tuple val(query_id), path("*_all_blast_hits_summary.tsv"), emit: summary
     
     script:
     """
     #!/bin/bash
     set -euo pipefail
     
+    # Sanitize query_id for filename use (replace special characters)
+    clean_query_id="\$(echo '${query_id}' | sed 's|[^a-zA-Z0-9_.-]|_|g')"
+    
     # First, add the query sequence to the combined FASTA
     if [ -f "${query_fasta}" ]; then
-        cat "${query_fasta}" > ${query_id}_all_blast_hits.fasta
-        echo "" >> ${query_id}_all_blast_hits.fasta
+        cat "${query_fasta}" > "\${clean_query_id}_all_blast_hits.fasta"
+        echo "" >> "\${clean_query_id}_all_blast_hits.fasta"
     else
-        touch ${query_id}_all_blast_hits.fasta
+        touch "\${clean_query_id}_all_blast_hits.fasta"
     fi
     
     # Then combine all BLAST hit FASTA files (skip empty files)
     # Use specific pattern to avoid reading the output file
     for fasta in *_top_hits.fasta; do
         if [ -f "\$fasta" ] && [ -s "\$fasta" ]; then
-            cat "\$fasta" >> ${query_id}_all_blast_hits.fasta
+            cat "\$fasta" >> "\${clean_query_id}_all_blast_hits.fasta"
         fi
     done
     
@@ -237,7 +240,7 @@ process CombineBlastHits {
     first_file=\$(ls *_top_hits_info.tsv 2>/dev/null | head -n 1 || echo "")
     if [ -n "\$first_file" ]; then
         # Create header
-        head -n 1 "\$first_file" > ${query_id}_all_blast_hits_summary.tsv
+        head -n 1 "\$first_file" > "\${clean_query_id}_all_blast_hits_summary.tsv"
         
         # Process each TSV file
         for file in *_top_hits_info.tsv; do
@@ -248,15 +251,15 @@ process CombineBlastHits {
             line_count=\$(wc -l < "\$file")
             if [ "\$line_count" -gt 1 ]; then
                 # File has hits, add them
-                tail -n +2 "\$file" >> ${query_id}_all_blast_hits_summary.tsv
+                tail -n +2 "\$file" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
             else
                 # File has only header (no hits), add no_hits_found entry
-                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA" >> ${query_id}_all_blast_hits_summary.tsv
+                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
             fi
         done
     else
-        echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > ${query_id}_all_blast_hits_summary.tsv
-        echo "No BLAST hit files found" >> ${query_id}_all_blast_hits_summary.tsv
+        echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > "\${clean_query_id}_all_blast_hits_summary.tsv"
+        echo "No BLAST hit files found" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
     fi
     """
 }
