@@ -1,0 +1,10 @@
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: Croll
+  given-names: Daniel
+  orcid: https://orcid.org/0000-0002-2072-380X
+title: "genomedenovo_nf - a Nextflow pipeline for de novo genome assembly and BLAST-based querying"
+version: v1.0.0
+date-released: 2026-04-10
+license: MIT

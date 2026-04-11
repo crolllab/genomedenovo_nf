@@ -11,6 +11,7 @@ include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { AlignMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
+include { PipelineStatistics } from '../modules/pipeline_statistics'
 
 // ---------------------
 // Main workflow
@@ -62,10 +63,29 @@ workflow denovo_query {
             read_pairs_local_ch = Channel.fromFilePairs(
                 params.reads,
                 checkIfExists: true,
-                flat: false
+                flat: false,
+                size: 2
             )
             local_pe_formatted = read_pairs_local_ch.map { sample_id, reads_list ->
-                [sample_id, reads_list[0], reads_list[1]]
+                // Get basenames without extensions
+                def name1 = reads_list[0].name.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
+                def name2 = reads_list[1].name.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
+
+                // Find longest common prefix (this is the true sample ID)
+                def commonPrefix = ""
+                def minLen = Math.min(name1.length(), name2.length())
+                for (int i = 0; i < minLen; i++) {
+                    if (name1[i] == name2[i]) {
+                        commonPrefix += name1[i]
+                    } else {
+                        break
+                    }
+                }
+
+                // Remove trailing separators (_, ., -)
+                commonPrefix = commonPrefix.replaceAll(/[._-]+$/, '')
+
+                return [commonPrefix, reads_list[0], reads_list[1]]
             }
         } else {
             local_pe_formatted = Channel.empty()
@@ -275,5 +295,16 @@ workflow denovo_query {
         // ---------------------
         // Run MAFFT alignment on each query's combined BLAST hit sequences
         AlignMAFFT(CombineBlastHits.out.combined_sequences)
+
+        all_done = SummarizeAssemblyMetrics.out
+            .mix(MergeBlastSummaries.out)
+            .collect()
+    } else {
+        all_done = SummarizeAssemblyMetrics.out.collect()
     }
+
+    // ---------------------
+    // Generate pipeline execution statistics
+    // ---------------------
+    PipelineStatistics(all_done, workflow.launchDir.resolve(params.outdir).resolve("pipeline_trace.txt"))
 }
