@@ -8,7 +8,7 @@
 // GTHsearch
 // ---------------------------------------------------------------------------
 process GTHsearch {
-    tag "GTH: ${sample_id} vs ${query_id}"
+    tag "GTH search: ${sample_id}"
     errorStrategy 'ignore'
     memory '8GB'
     cpus 1
@@ -64,7 +64,7 @@ process GTHsearch {
 // CombineGTHHits
 // ---------------------------------------------------------------------------
 process CombineGTHHits {
-    tag "Combining GTH hits for ${query_id}"
+    tag "Combining GTH hits"
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
 
     input:
