@@ -9,7 +9,9 @@ include { SPAdes; SPAdesSE } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
+include { GTHsearch; CombineGTHHits } from '../modules/gth_search'
 include { AlignMAFFT } from '../modules/align_mafft'
+include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
@@ -85,7 +87,7 @@ workflow denovo_query {
                 // Remove trailing separators (_, ., -)
                 commonPrefix = commonPrefix.replaceAll(/[._-]+$/, '')
 
-                return [commonPrefix, reads_list[0], reads_list[1]]
+                return [commonPrefix, reads_list[0], reads_list[1], 'local']
             }
         } else {
             local_pe_formatted = Channel.empty()
@@ -94,12 +96,12 @@ workflow denovo_query {
         // Handle SRA paired-end reads
         if (params.SRA_index) {
             sra_pe_formatted = SRAdownloadPE.out.map { sample_id, read1, read2 ->
-                [sample_id, read1, read2]
+                [sample_id, read1, read2, 'SRA']
             }
             
             // Handle SRA single-end reads
             sra_se_formatted = SRAdownloadSE.out.map { sample_id, read ->
-                [sample_id, read]
+                [sample_id, read, 'SRA']
             }
         } else {
             sra_pe_formatted = Channel.empty()
@@ -179,6 +181,23 @@ workflow denovo_query {
     }
 
     // ---------------------
+    // Rename samples (optional)
+    // ---------------------
+    if (params.SRR_sample_map) {
+        rename_pairs = Channel.fromPath(params.SRR_sample_map)
+            .splitCsv(header: false)
+            .map { row -> [row[0].trim(), row[1].trim()] }
+            .collect()
+
+        all_scaffolds_ch = all_scaffolds_ch
+            .combine(rename_pairs)
+            .map { sample_id, scaffolds, rename_list ->
+                def new_id = rename_list.find { it[0] == sample_id }?.get(1) ?: sample_id
+                [new_id, scaffolds]
+            }
+    }
+
+    // ---------------------
     // Quality assessment
     // ---------------------
     // Run QUAST on all scaffolds (only if we have any)
@@ -189,116 +208,141 @@ workflow denovo_query {
     SummarizeAssemblyMetrics(quast_metrics)
 
     // ---------------------
-    // BLAST analysis
+    // Sequence search analysis
     // ---------------------
     if (params.blast_query) {
         blast_query_file = file(params.blast_query)
-        
+
         // Split query file into individual sequences
         SplitQuerySequences(blast_query_file)
-        
-        // Read query_info.tsv to get sequence types for each query
+
+        // Read query_info.tsv keyed by filename (exact, reliable key)
         query_info_ch = SplitQuerySequences.out.query_info
             .splitCsv(header: true, sep: '\t')
-            .map { row ->
-                // Map: [query_id, seq_type]
-                [row.Query_ID, row.Sequence_Type]
-            }
-        
-        // Create channel of individual query files with query IDs
-        individual_queries = SplitQuerySequences.out.individual_queries
+            .map { row -> [row.Filename, row.Query_ID, row.Sequence_Type] }
+
+        // Join individual query files with their query_id and seq_type
+        queries_with_type = SplitQuerySequences.out.individual_queries
             .flatten()
-            .map { query_file ->
-                // Extract query ID from filename: query_1_seqname.fasta -> seqname
-                def filename = query_file.name
-                def query_id = filename.replaceAll(/^query_\d+_/, '').replaceAll(/\.fasta$/, '')
-                // Convert filesystem-safe characters back to original characters
-                // Replace _-_ at end with (-) and first _ with :
-                query_id = query_id.replaceAll(/_-_$/, '(-)').replaceAll(/_/, ':')
-                [query_id, query_file]
-            }
-        
-        // Join query files with their sequence types
-        queries_with_type = individual_queries
+            .map { query_file -> [query_file.name, query_file] }
             .join(query_info_ch)
-            .map { query_id, query_file, seq_type ->
+            .map { filename, query_file, query_id, seq_type ->
                 [query_id, query_file, seq_type]
             }
-        
-        // Combine scaffolds with each query for BLAST
-        // Creates: [sample_id, scaffolds_fasta, query_id, query_fasta, seq_type]
-        blast_input = all_scaffolds_ch
+
+        // [query_id, query_file] — used by both BLAST and GTH paths
+        individual_queries = queries_with_type
+            .map { query_id, query_file, seq_type -> [query_id, query_file] }
+
+        // Shared input tuple structure for both tools:
+        // [sample_id, scaffolds_fasta, query_id, query_fasta, seq_type]
+        search_input = all_scaffolds_ch
             .combine(queries_with_type)
             .map { sample_id, scaffolds_fasta, query_id, query_fasta, seq_type ->
                 [sample_id, scaffolds_fasta, query_id, query_fasta, seq_type]
             }
-        
-        // Run BLAST on all scaffolds vs each query
-        BLASTsearch(blast_input)
-        
-        // Join BLAST results with scaffold files for extraction
-        // Remap BLAST results to [sample_id, [query_id, blast_results]]
-        // and join with [sample_id, scaffolds_fasta]
-        // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
-        blast_remapped = BLASTsearch.out.results
-            .map { query_id, sample_id, blast_results -> 
-                [sample_id, [query_id, blast_results]]
-            }
-        
-        scaffolds_for_join = all_scaffolds_ch.map { sample_id, scaffolds -> 
-            [sample_id, scaffolds]
-        }
-        
-        blast_with_scaffolds = blast_remapped
-            .combine(scaffolds_for_join, by: 0)
-            .map { sample_id, blast_info, scaffolds_fasta ->
-                def query_id = blast_info[0]
-                def blast_results = blast_info[1]
-                [query_id, sample_id, blast_results, scaffolds_fasta]
-            }
-        
-        // Extract hit regions from assemblies
-        ExtractBlastHits(blast_with_scaffolds)
-        
-        // Group by query_id for combining
-        sequences_by_query = ExtractBlastHits.out.sequences
-            .map { query_id, sample_id, fasta -> [query_id, fasta] }
-            .groupTuple()
-        
-        hit_info_by_query = ExtractBlastHits.out.hit_info
-            .groupTuple()
-        
-        // Join with query sequences to include in output
-        queries_for_combine = individual_queries
-            .map { query_id, query_file -> [query_id, query_file] }
-        
-        // Combine sequences and hit info for each query
-        combined_by_query = queries_for_combine
-            .join(sequences_by_query)
-            .join(hit_info_by_query)
-        
-        // Combine all extracted sequences for each query (with query sequence prepended)
-        CombineBlastHits(combined_by_query)
-        
-        // ---------------------
-        // Merge BLAST summaries
-        // ---------------------
-        // Collect all summary TSV files and merge into a single wide-format table
-        all_summaries = CombineBlastHits.out.summary
-            .map { query_id, summary_file -> summary_file }
-            .collect()
-        
-        MergeBlastSummaries(all_summaries)
-        
-        // ---------------------
-        // Multiple sequence alignment
-        // ---------------------
-        // Run MAFFT alignment on each query's combined BLAST hit sequences
-        AlignMAFFT(CombineBlastHits.out.combined_sequences)
 
-        all_done = SummarizeAssemblyMetrics.out
-            .mix(MergeBlastSummaries.out)
-            .collect()
+        // ------------------------------------------------------------------
+        // GenomeThreader path  (--search_tool gth)
+        // Performs protein-to-genome or cDNA-to-genome spliced alignment,
+        // natively resolving exon boundaries. Outputs nucleotide CDS and
+        // predicted protein FASTA per sample.
+        // ------------------------------------------------------------------
+        if (params.search_tool == 'gth') {
+
+            GTHsearch(search_input)
+
+            // Group per-sample outputs by query_id
+            gth_cds_by_query = GTHsearch.out.cds_sequences
+                .map { query_id, sample_id, cds_fasta -> [query_id, cds_fasta] }
+                .groupTuple()
+
+            gth_prot_by_query = GTHsearch.out.protein_sequences
+                .map { query_id, sample_id, prot_fasta -> [query_id, prot_fasta] }
+                .groupTuple()
+
+            gth_summary_by_query = GTHsearch.out.summary
+                .groupTuple()
+
+            // Join query file + all per-sample outputs for each query_id
+            gth_combined_input = individual_queries
+                .join(gth_cds_by_query)
+                .join(gth_prot_by_query)
+                .join(gth_summary_by_query)
+
+            CombineGTHHits(gth_combined_input)
+
+            // Align nucleotide CDS sequences across samples
+            AlignMAFFT(CombineGTHHits.out.combined_cds)
+
+            // Align protein sequences across samples
+            AlignProteinMAFFT(CombineGTHHits.out.combined_protein)
+
+            // Use combined CDS output as completion signal
+            gth_done = CombineGTHHits.out.combined_cds
+                .map { query_id, fasta -> fasta }
+            all_done = SummarizeAssemblyMetrics.out
+                .mix(gth_done)
+                .collect()
+
+        // ------------------------------------------------------------------
+        // BLAST path  (--search_tool blast, default)
+        // tblastn (protein query) or blastn (nucleotide query) against
+        // assembled scaffolds, then extract padded hit regions.
+        // ------------------------------------------------------------------
+        } else {
+
+            BLASTsearch(search_input)
+
+            // Join BLAST results back with scaffolds for region extraction
+            // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
+            blast_remapped = BLASTsearch.out.results
+                .map { query_id, sample_id, blast_results ->
+                    [sample_id, [query_id, blast_results]]
+                }
+
+            scaffolds_for_join = all_scaffolds_ch
+                .map { sample_id, scaffolds -> [sample_id, scaffolds] }
+
+            blast_with_scaffolds = blast_remapped
+                .combine(scaffolds_for_join, by: 0)
+                .map { sample_id, blast_info, scaffolds_fasta ->
+                    def query_id    = blast_info[0]
+                    def blast_results = blast_info[1]
+                    [query_id, sample_id, blast_results, scaffolds_fasta]
+                }
+
+            ExtractBlastHits(blast_with_scaffolds)
+
+            // Group per-sample outputs by query_id
+            sequences_by_query = ExtractBlastHits.out.sequences
+                .map { query_id, sample_id, fasta -> [query_id, fasta] }
+                .groupTuple()
+
+            hit_info_by_query = ExtractBlastHits.out.hit_info
+                .groupTuple()
+
+            combined_by_query = individual_queries
+                .join(sequences_by_query)
+                .join(hit_info_by_query)
+
+            CombineBlastHits(combined_by_query)
+
+            // Merge per-query summary TSVs into a single wide-format table
+            all_summaries = CombineBlastHits.out.summary
+                .map { query_id, summary_file -> summary_file }
+                .collect()
+
+            MergeBlastSummaries(all_summaries)
+
+            // Align hit sequences across samples
+            AlignMAFFT(CombineBlastHits.out.combined_sequences)
+
+            all_done = SummarizeAssemblyMetrics.out
+                .mix(MergeBlastSummaries.out)
+                .collect()
+        }
+
     } else {
         all_done = SummarizeAssemblyMetrics.out.collect()
     }

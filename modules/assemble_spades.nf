@@ -9,7 +9,7 @@ process SPAdes {
     publishDir "${params.outdir}/spades_stats", mode: 'copy', pattern: "${sample_id}/spades.log"
     
     input:
-    tuple val(sample_id), path(read1), path(read2)
+    tuple val(sample_id), path(read1), path(read2), val(source)
     
     output:
     tuple val(sample_id), path("${sample_id}/contigs.fasta"), emit: contigs
@@ -37,19 +37,21 @@ process SPAdes {
         rm -rf ${sample_id}/tmp/
     fi
     
-    # Safely delete the input files
-    for file in "${read1}" "${read2}"; do
-        if [ -L "\$file" ]; then
-            # It's a symlink - try to delete the target
-            target=\$(readlink -f "\$file" 2>/dev/null)
-            if [ -n "\$target" ] && [ -f "\$target" ]; then
-                rm "\$target" 2>/dev/null || echo "Warning: Could not delete \$target (write-protected or permission denied)"
+    # Only delete input files if they were downloaded from SRA
+    # User-provided files (source='local') are preserved
+    if [ "${source}" = "SRA" ]; then
+        echo "Deleting SRA-downloaded files after assembly..."
+        for file in "${read1}" "${read2}"; do
+            if [ -L "\$file" ]; then
+                target=\$(readlink -f "\$file" 2>/dev/null)
+                [ -n "\$target" ] && [ -f "\$target" ] && rm "\$target" || true
+            elif [ -f "\$file" ]; then
+                rm "\$file" || true
             fi
-        elif [ -f "\$file" ]; then
-            # It's a regular file - try to delete it directly
-            rm "\$file" 2>/dev/null || echo "Warning: Could not delete \$file (write-protected or permission denied)"
-        fi
-    done
+        done
+    else
+        echo "Preserving user-provided files (source: ${source})"
+    fi
     """
 }
 
@@ -64,7 +66,7 @@ process SPAdesSE {
     publishDir "${params.outdir}/spades_stats", mode: 'copy', pattern: "${sample_id}/spades.log"
     
     input:
-    tuple val(sample_id), path(read)
+    tuple val(sample_id), path(read), val(source)
     
     output:
     tuple val(sample_id), path("${sample_id}/contigs.fasta"), emit: contigs
@@ -91,16 +93,18 @@ process SPAdesSE {
         rm -rf ${sample_id}/tmp/
     fi
     
-    # Safely delete the input file
-    if [ -L "${read}" ]; then
-        # It's a symlink - try to delete the target
-        target=\$(readlink -f "${read}" 2>/dev/null)
-        if [ -n "\$target" ] && [ -f "\$target" ]; then
-            rm "\$target" 2>/dev/null || echo "Warning: Could not delete \$target (write-protected or permission denied)"
+    # Only delete input file if it was downloaded from SRA
+    # User-provided files (source='local') are preserved
+    if [ "${source}" = "SRA" ]; then
+        echo "Deleting SRA-downloaded file after assembly..."
+        if [ -L "${read}" ]; then
+            target=\$(readlink -f "${read}" 2>/dev/null)
+            [ -n "\$target" ] && [ -f "\$target" ] && rm "\$target" || true
+        elif [ -f "${read}" ]; then
+            rm "${read}" || true
         fi
-    elif [ -f "${read}" ]; then
-        # It's a regular file - try to delete it directly
-        rm "${read}" 2>/dev/null || echo "Warning: Could not delete ${read} (write-protected or permission denied)"
+    else
+        echo "Preserving user-provided file (source: ${source})"
     fi
     """
 }
