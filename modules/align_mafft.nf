@@ -1,6 +1,6 @@
 // Process to perform multiple sequence alignment on combined BLAST hit sequences using MAFFT
 process AlignMAFFT {
-    tag "MAFFT alignment for query: ${query_id}"
+    tag "MAFFT alignment for: ${query_id}"
     errorStrategy 'ignore'
     memory '8GB'
     cpus 8

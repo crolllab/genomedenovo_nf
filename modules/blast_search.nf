@@ -128,7 +128,7 @@ process SplitQuerySequences {
 
 // BLAST process definition - supports both blastn (nucleotide) and tblastn (protein)
 process BLASTsearch {
-    tag "BLAST search for ${query_id} (${seq_type})"
+    tag "BLAST search for ${query_id}"
     errorStrategy 'ignore'
     memory '4GB'
     cpus 4

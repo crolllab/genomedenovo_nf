@@ -11,6 +11,7 @@ include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { GTHsearch; CombineGTHHits } from '../modules/gth_search'
 include { AlignMAFFT } from '../modules/align_mafft'
+include { AlignMAFFT as AlignGTHCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
@@ -243,14 +244,73 @@ workflow denovo_query {
             }
 
         // ------------------------------------------------------------------
+        // BLAST search (always runs)
+        // tblastn (protein query) or blastn (nucleotide query) against
+        // assembled scaffolds, then extract padded hit regions.
+        // ------------------------------------------------------------------
+        BLASTsearch(search_input)
+
+        // Join BLAST results back with scaffolds for region extraction
+        // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
+        blast_remapped = BLASTsearch.out.results
+            .map { query_id, sample_id, blast_results ->
+                [sample_id, [query_id, blast_results]]
+            }
+
+        scaffolds_for_join = all_scaffolds_ch
+            .map { sample_id, scaffolds -> [sample_id, scaffolds] }
+
+        blast_with_scaffolds = blast_remapped
+            .combine(scaffolds_for_join, by: 0)
+            .map { sample_id, blast_info, scaffolds_fasta ->
+                def query_id      = blast_info[0]
+                def blast_results = blast_info[1]
+                [query_id, sample_id, blast_results, scaffolds_fasta]
+            }
+
+        ExtractBlastHits(blast_with_scaffolds)
+
+        // Group per-sample outputs by query_id
+        sequences_by_query = ExtractBlastHits.out.sequences
+            .map { query_id, sample_id, fasta -> [query_id, fasta] }
+            .groupTuple()
+
+        hit_info_by_query = ExtractBlastHits.out.hit_info
+            .groupTuple()
+
+        combined_by_query = individual_queries
+            .join(sequences_by_query)
+            .join(hit_info_by_query)
+
+        CombineBlastHits(combined_by_query)
+
+        // Merge per-query summary TSVs into a single wide-format table
+        all_summaries = CombineBlastHits.out.summary
+            .map { query_id, summary_file -> summary_file }
+            .collect()
+
+        MergeBlastSummaries(all_summaries)
+
+        // Align BLAST hit sequences across samples
+        AlignMAFFT(CombineBlastHits.out.combined_sequences)
+
+        // ------------------------------------------------------------------
         // GenomeThreader path  (--search_tool gth)
-        // Performs protein-to-genome or cDNA-to-genome spliced alignment,
-        // natively resolving exon boundaries. Outputs nucleotide CDS and
-        // predicted protein FASTA per sample.
+        // Runs on BLAST-extracted regions (not the full assembly) for speed.
+        // Performs protein-to-genome or cDNA-to-genome spliced alignment to
+        // resolve exact exon boundaries. Outputs nucleotide CDS and protein.
         // ------------------------------------------------------------------
         if (params.search_tool == 'gth') {
 
-            GTHsearch(search_input)
+            // Build GTH input from BLAST-extracted hit FASTAs (not full scaffolds):
+            // [sample_id, hit_fasta, query_id, query_fasta, seq_type]
+            gth_input = ExtractBlastHits.out.sequences
+                .combine(queries_with_type, by: 0)
+                .map { query_id, sample_id, hit_fasta, query_fasta, seq_type ->
+                    [sample_id, hit_fasta, query_id, query_fasta, seq_type]
+                }
+
+            GTHsearch(gth_input)
 
             // Group per-sample outputs by query_id
             gth_cds_by_query = GTHsearch.out.cds_sequences
@@ -273,71 +333,19 @@ workflow denovo_query {
             CombineGTHHits(gth_combined_input)
 
             // Align nucleotide CDS sequences across samples
-            AlignMAFFT(CombineGTHHits.out.combined_cds)
+            AlignGTHCdsMAFFT(CombineGTHHits.out.combined_cds)
 
             // Align protein sequences across samples
             AlignProteinMAFFT(CombineGTHHits.out.combined_protein)
 
-            // Use combined CDS output as completion signal
             gth_done = CombineGTHHits.out.combined_cds
                 .map { query_id, fasta -> fasta }
             all_done = SummarizeAssemblyMetrics.out
+                .mix(MergeBlastSummaries.out)
                 .mix(gth_done)
                 .collect()
 
-        // ------------------------------------------------------------------
-        // BLAST path  (--search_tool blast, default)
-        // tblastn (protein query) or blastn (nucleotide query) against
-        // assembled scaffolds, then extract padded hit regions.
-        // ------------------------------------------------------------------
         } else {
-
-            BLASTsearch(search_input)
-
-            // Join BLAST results back with scaffolds for region extraction
-            // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
-            blast_remapped = BLASTsearch.out.results
-                .map { query_id, sample_id, blast_results ->
-                    [sample_id, [query_id, blast_results]]
-                }
-
-            scaffolds_for_join = all_scaffolds_ch
-                .map { sample_id, scaffolds -> [sample_id, scaffolds] }
-
-            blast_with_scaffolds = blast_remapped
-                .combine(scaffolds_for_join, by: 0)
-                .map { sample_id, blast_info, scaffolds_fasta ->
-                    def query_id    = blast_info[0]
-                    def blast_results = blast_info[1]
-                    [query_id, sample_id, blast_results, scaffolds_fasta]
-                }
-
-            ExtractBlastHits(blast_with_scaffolds)
-
-            // Group per-sample outputs by query_id
-            sequences_by_query = ExtractBlastHits.out.sequences
-                .map { query_id, sample_id, fasta -> [query_id, fasta] }
-                .groupTuple()
-
-            hit_info_by_query = ExtractBlastHits.out.hit_info
-                .groupTuple()
-
-            combined_by_query = individual_queries
-                .join(sequences_by_query)
-                .join(hit_info_by_query)
-
-            CombineBlastHits(combined_by_query)
-
-            // Merge per-query summary TSVs into a single wide-format table
-            all_summaries = CombineBlastHits.out.summary
-                .map { query_id, summary_file -> summary_file }
-                .collect()
-
-            MergeBlastSummaries(all_summaries)
-
-            // Align hit sequences across samples
-            AlignMAFFT(CombineBlastHits.out.combined_sequences)
-
             all_done = SummarizeAssemblyMetrics.out
                 .mix(MergeBlastSummaries.out)
                 .collect()

@@ -23,8 +23,8 @@ log.info """
      1. SRA resolve & download (optional)
      2. De novo assembly (SPAdes)
      3. Assembly QC (QUAST)
-     4. Sequence search: BLAST or GenomeThreader (CDS + protein)
-     5. Hit extraction
+     4. Sequence search: BLAST (always) + GenomeThreader CDS/protein (--search_tool gth)
+     5. Hit extraction & per-query FASTA
      6. Multiple sequence alignment (MAFFT)
    
    Configuration:

@@ -10,8 +10,8 @@
 process GTHsearch {
     tag "GTH: ${sample_id} vs ${query_id}"
     errorStrategy 'ignore'
-    memory '16GB'
-    cpus 4
+    memory '8GB'
+    cpus 1
     publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy'
 
     input:
@@ -41,7 +41,7 @@ process GTHsearch {
     # -skipalignmentout : suppress verbose alignment text
     # -force        : overwrite output if it already exists
     gth -genomic ${scaffolds_fasta} ${gth_mode} ${query_fasta} \
-        -gff3out -skipalignmentout -force \
+        -gff3out -skipalignmentout \
         > ${sample_id}_gth.gff3 \
         2> ${sample_id}_gth.log || true
 
@@ -117,6 +117,7 @@ process CombineGTHHits {
     fi
 
     for f in *_gth_cds.fasta; do
+        [[ "\${f}" == "\${clean_query_id}_all_gth_cds.fasta" ]] && continue
         [ -s "\${f}" ] && cat "\${f}" >> "\${clean_query_id}_all_gth_cds.fasta" || true
     done
 
@@ -132,17 +133,19 @@ process CombineGTHHits {
     fi
 
     for f in *_gth_protein.fasta; do
+        [[ "\${f}" == "\${clean_query_id}_all_gth_protein.fasta" ]] && continue
         [ -s "\${f}" ] && cat "\${f}" >> "\${clean_query_id}_all_gth_protein.fasta" || true
     done
 
     # -------------------------------------------------------------------------
     # Combined summary TSV — merge all per-sample summaries, add no-hit rows
     # -------------------------------------------------------------------------
-    first_tsv=\$(ls *_gth_summary.tsv 2>/dev/null | head -n 1 || echo "")
+    first_tsv=\$(ls *_gth_summary.tsv 2>/dev/null | grep -v '_all_gth_summary' | head -n 1 || echo "")
 
     if [ -n "\${first_tsv}" ]; then
         head -n 1 "\${first_tsv}" > "\${clean_query_id}_all_gth_summary.tsv"
         for tsv in *_gth_summary.tsv; do
+            [[ "\${tsv}" == "\${clean_query_id}_all_gth_summary.tsv" ]] && continue
             sample_id=\$(basename "\${tsv}" "_gth_summary.tsv")
             line_count=\$(wc -l < "\${tsv}")
             if [ "\${line_count}" -gt 1 ]; then
