@@ -1,21 +1,55 @@
 // GenomeThreader spliced alignment of a protein or cDNA query against a
 // de novo assembled genome. Handles multi-exon eukaryotic gene structures.
 //
-// GTHsearch     -- per-sample: run gth, extract CDS + protein via extract_gth_cds.py
+// GTHsearch      -- per-sample: run gth, output raw GFF3 (genomethreader container, no python3)
+// ExtractGTHCds  -- per-sample: parse GFF3, extract CDS + translate protein (spades container, has python3)
 // CombineGTHHits -- per-query: merge all sample outputs into combined FASTA + TSV
 
 // ---------------------------------------------------------------------------
-// GTHsearch
+// GTHsearch  (genomethreader container — no python3, BusyBox shell)
 // ---------------------------------------------------------------------------
 process GTHsearch {
-    tag "GTH search: ${sample_id}"
+    tag "GTH: ${sample_id} vs ${query_id}"
     errorStrategy 'ignore'
     memory '8GB'
     cpus 1
-    publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy'
 
     input:
     tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)
+
+    output:
+    // Pass scaffolds + GFF3 forward to ExtractGTHCds for Python-based CDS extraction
+    tuple val(query_id), val(sample_id), path(scaffolds_fasta), path("${sample_id}_gth.gff3"), emit: gff3
+
+    script:
+    def gth_mode = (seq_type == 'protein') ? '-protein' : '-cdna'
+    """
+    #!/bin/bash
+    set -euo pipefail
+
+    # Run GenomeThreader: protein-to-genome or cDNA-to-genome spliced alignment
+    # -gff3out      : output GFF3 (exon/CDS coordinates)
+    # -skipalignmentout : suppress verbose alignment text
+    gth -genomic ${scaffolds_fasta} ${gth_mode} ${query_fasta} \
+        -gff3out -skipalignmentout \
+        > ${sample_id}_gth.gff3 \
+        2> ${sample_id}_gth.log || true
+    """
+}
+
+// ---------------------------------------------------------------------------
+// ExtractGTHCds  (spades container — has python3)
+// Parses the GTH GFF3 and extracts CDS + protein sequences per sample.
+// ---------------------------------------------------------------------------
+process ExtractGTHCds {
+    tag "Extract GTH CDS: ${sample_id}"
+    errorStrategy 'ignore'
+    cpus 1
+    memory '2GB'
+    publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy'
+
+    input:
+    tuple val(query_id), val(sample_id), path(scaffolds_fasta), path(gff3_file)
 
     output:
     tuple val(query_id), val(sample_id), path("${sample_id}_gth_cds.fasta"),     emit: cds_sequences
@@ -23,39 +57,27 @@ process GTHsearch {
     tuple val(query_id), path("${sample_id}_gth_summary.tsv"),                   emit: summary
 
     script:
-    // Use -protein for protein queries (tblastn equivalent),
-    // -cdna for nucleotide/cDNA queries (blastn equivalent)
-    def gth_mode = (seq_type == 'protein') ? '-protein' : '-cdna'
     """
     #!/bin/bash
     set -euo pipefail
 
-    # Initialise empty output files (written if GTH finds no gene models)
+    # Initialise empty output files
     touch ${sample_id}_gth_cds.fasta
     touch ${sample_id}_gth_protein.fasta
     printf 'Sample_ID\tQuery_ID\tScaffold\tStrand\tExon_Count\tCDS_Length\tProtein_Length\tExon_Coordinates\n' \
         > ${sample_id}_gth_summary.tsv
 
-    # Run GenomeThreader: protein-to-genome or cDNA-to-genome spliced alignment
-    # -gff3out      : output GFF3 (exon/CDS coordinates)
-    # -skipalignmentout : suppress verbose alignment text
-    # -force        : overwrite output if it already exists
-    gth -genomic ${scaffolds_fasta} ${gth_mode} ${query_fasta} \
-        -gff3out -skipalignmentout \
-        > ${sample_id}_gth.gff3 \
-        2> ${sample_id}_gth.log || true
-
-    # Extract CDS exons, concatenate respecting strand, and translate to protein.
-    # extract_gth_cds.py is staged from the pipeline bin/ directory.
-    if grep -qP '\tCDS\t' ${sample_id}_gth.gff3 2>/dev/null; then
+    # Use grep -F with a literal tab (works in BusyBox and GNU grep)
+    TAB=\$(printf '\t')
+    if grep -qF "\${TAB}CDS\${TAB}" ${gff3_file} 2>/dev/null; then
         QUERY_ID='${query_id}'
         python3 extract_gth_cds.py \
             ${scaffolds_fasta} \
-            ${sample_id}_gth.gff3 \
+            ${gff3_file} \
             ${sample_id} \
             "\${QUERY_ID}"
     else
-        echo "No CDS features found in GTH output for ${sample_id} vs ${query_id}" >> ${sample_id}_gth.log
+        echo "No CDS features found in GTH output for ${sample_id}" >> ${sample_id}_gth_extract.log
     fi
     """
 }
@@ -64,20 +86,13 @@ process GTHsearch {
 // CombineGTHHits
 // ---------------------------------------------------------------------------
 process CombineGTHHits {
-    tag "Combining GTH hits"
+    tag "Combining GTH hits for ${query_id}"
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
 
     input:
-    // query_fasta    : original query file (to prepend to combined output)
-    // cds_fastas     : list of per-sample *_gth_cds.fasta files
-    // protein_fastas : list of per-sample *_gth_protein.fasta files
-    // summary_tsvs   : list of per-sample *_gth_summary.tsv files
     tuple val(query_id), path(query_fasta), path(cds_fastas), path(protein_fastas), path(summary_tsvs)
 
     output:
-    // combined_cds     : for AlignMAFFT (nucleotide); query prepended if nucleotide query
-    // combined_protein : for AlignProteinMAFFT; query prepended if protein query
-    // summary          : merged per-sample hit table for this query
     tuple val(query_id), path("*_all_gth_cds.fasta"),     emit: combined_cds
     tuple val(query_id), path("*_all_gth_protein.fasta"), emit: combined_protein
     tuple val(query_id), path("*_all_gth_summary.tsv"),   emit: summary
@@ -91,7 +106,6 @@ process CombineGTHHits {
 
     # -------------------------------------------------------------------------
     # Detect whether the original query is nucleotide or protein
-    # (so we prepend it to the appropriate combined FASTA for alignment)
     # -------------------------------------------------------------------------
     query_type="unknown"
     if [ -f "${query_fasta}" ]; then
@@ -106,8 +120,6 @@ process CombineGTHHits {
 
     # -------------------------------------------------------------------------
     # Combined CDS FASTA (nucleotide)
-    # Prepend original query only when it is a nucleotide sequence so that
-    # MAFFT can align all sequences (query + hit CDS) together.
     # -------------------------------------------------------------------------
     if [ "\${query_type}" = "nucleotide" ] && [ -f "${query_fasta}" ]; then
         cat "${query_fasta}" > "\${clean_query_id}_all_gth_cds.fasta"
@@ -123,7 +135,6 @@ process CombineGTHHits {
 
     # -------------------------------------------------------------------------
     # Combined protein FASTA
-    # Prepend original query only when it is a protein sequence.
     # -------------------------------------------------------------------------
     if [ "\${query_type}" = "protein" ] && [ -f "${query_fasta}" ]; then
         cat "${query_fasta}" > "\${clean_query_id}_all_gth_protein.fasta"
@@ -138,7 +149,7 @@ process CombineGTHHits {
     done
 
     # -------------------------------------------------------------------------
-    # Combined summary TSV — merge all per-sample summaries, add no-hit rows
+    # Combined summary TSV
     # -------------------------------------------------------------------------
     first_tsv=\$(ls *_gth_summary.tsv 2>/dev/null | grep -v '_all_gth_summary' | head -n 1 || echo "")
 

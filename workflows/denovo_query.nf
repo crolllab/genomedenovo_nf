@@ -9,7 +9,7 @@ include { SPAdes; SPAdesSE } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
-include { GTHsearch; CombineGTHHits } from '../modules/gth_search'
+include { GTHsearch; ExtractGTHCds; CombineGTHHits } from '../modules/gth_search'
 include { AlignMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignGTHCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
@@ -312,16 +312,19 @@ workflow denovo_query {
 
             GTHsearch(gth_input)
 
+            // Extract CDS + protein from the raw GFF3 using python3 (spades container)
+            ExtractGTHCds(GTHsearch.out.gff3)
+
             // Group per-sample outputs by query_id
-            gth_cds_by_query = GTHsearch.out.cds_sequences
+            gth_cds_by_query = ExtractGTHCds.out.cds_sequences
                 .map { query_id, sample_id, cds_fasta -> [query_id, cds_fasta] }
                 .groupTuple()
 
-            gth_prot_by_query = GTHsearch.out.protein_sequences
+            gth_prot_by_query = ExtractGTHCds.out.protein_sequences
                 .map { query_id, sample_id, prot_fasta -> [query_id, prot_fasta] }
                 .groupTuple()
 
-            gth_summary_by_query = GTHsearch.out.summary
+            gth_summary_by_query = ExtractGTHCds.out.summary
                 .groupTuple()
 
             // Join query file + all per-sample outputs for each query_id
