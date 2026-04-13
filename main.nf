@@ -6,9 +6,10 @@ params.SRA_index = ""
 params.NCBI_API_key = ""
 params.blast_query = ""
 params.scaffolds = ""
-params.padding = 100  // Number of bp to extend BLAST hit sequences on both sides
+params.padding = 500  // Number of bp to extend BLAST hit sequences on both sides
 params.SRR_sample_map = ""  // Optional: CSV file (no header) mapping original sample IDs to new names
 params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'gth' (GenomeThreader)
+params.skip_quast = false      // Set to true to skip QUAST assembly QC
 
 
 include { denovo_query } from './workflows/denovo_query.nf'

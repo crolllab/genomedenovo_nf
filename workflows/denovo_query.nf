@@ -31,6 +31,44 @@ workflow denovo_query {
         exit 1, "ERROR: BLAST query file does not exist: ${params.blast_query}"
     }
 
+    // When GTH is requested with a nucleotide query, verify the query is CDS
+    // (no stop codons).  If stop codons are found the query is likely genomic
+    // DNA with introns, which GTH cannot handle correctly as an EST input.
+    if (params.search_tool == 'gth' && params.blast_query) {
+        def qfile = file(params.blast_query)
+        if (qfile.exists()) {
+            def buf = new StringBuilder()
+            def inSeq = false
+            qfile.eachLine { line ->
+                if (line.startsWith('>')) { inSeq = true }
+                else if (inSeq) { buf.append(line.trim().toUpperCase()) }
+            }
+            def seq = buf.toString()
+            if (seq) {
+                def nucCount = seq.findAll { c -> 'ATGCUN'.contains(c as String) }.size()
+                def isNucl = (nucCount * 100 / seq.size()) >= 95
+                if (isNucl) {
+                    def stopCodons = ['TAA', 'TAG', 'TGA'] as Set
+                    def hasStop = false
+                    // Only check frame 0: a CDS must start at position 0.
+                    // Checking other frames would produce false positives on any valid CDS.
+                    for (int i = 0; i <= seq.size() - 3 && !hasStop; i += 3) {
+                        // ignore stop codon at the terminal position
+                        if (stopCodons.contains(seq.substring(i, i + 3)) && (i + 3) < seq.size()) hasStop = true
+                    }
+                    if (hasStop) {
+                        exit 1, """ERROR: --search_tool gth requires a CDS or protein query, but the nucleotide query contains stop codons in at least one reading frame.
+  This suggests the query is genomic DNA with introns, which GenomeThreader cannot use as an EST/cDNA input.
+  Please provide either:
+    - A mature CDS sequence (spliced, no introns, no in-frame stop codons)
+    - A protein sequence (amino acid FASTA)
+  To use genomic DNA as a locus anchor, run without --search_tool gth (BLAST only)."""
+                    }
+                }
+            }
+        }
+    }
+
     // ---------------------
     // SRA metadata + downloads
     // ---------------------
@@ -136,7 +174,10 @@ workflow denovo_query {
             local_scaffolds_ch = Channel
                 .fromPath(scaffolds_path, checkIfExists: true)
                 .map { file ->
-                    def sample_id = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
+                    def base = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
+                    // If the filename is a generic name (e.g. "scaffolds"), use
+                    // the parent directory name as the sample_id instead
+                    def sample_id = (base ==~ /scaffolds?|assembly|genome|contigs?/) ? file.parent.name : base
                     [sample_id, file]
                 }
         } else if (file(scaffolds_path).exists() && file(scaffolds_path).isDirectory()) {
@@ -185,28 +226,28 @@ workflow denovo_query {
     // Rename samples (optional)
     // ---------------------
     if (params.SRR_sample_map) {
-        rename_pairs = Channel.fromPath(params.SRR_sample_map)
-            .splitCsv(header: false)
-            .map { row -> [row[0].trim(), row[1].trim()] }
-            .collect()
-
+        def rename_map = [:]
+        file(params.SRR_sample_map).eachLine { line ->
+            def parts = line.trim().split(',', 2)
+            if (parts.size() == 2) rename_map[parts[0].trim()] = parts[1].trim()
+        }
         all_scaffolds_ch = all_scaffolds_ch
-            .combine(rename_pairs)
-            .map { sample_id, scaffolds, rename_list ->
-                def new_id = rename_list.find { it[0] == sample_id }?.get(1) ?: sample_id
-                [new_id, scaffolds]
+            .map { sample_id, scaffolds ->
+                [rename_map.getOrDefault(sample_id, sample_id), scaffolds]
             }
     }
 
     // ---------------------
     // Quality assessment
     // ---------------------
-    // Run QUAST on all scaffolds (only if we have any)
-    QUAST(all_scaffolds_ch)
-    
-    // Collect all QUAST metrics and summarize
-    quast_metrics = QUAST.out.metrics.collect()
-    SummarizeAssemblyMetrics(quast_metrics)
+    if (!params.skip_quast) {
+        QUAST(all_scaffolds_ch)
+        quast_metrics = QUAST.out.metrics.collect()
+        SummarizeAssemblyMetrics(quast_metrics)
+        assembly_qc_done = SummarizeAssemblyMetrics.out
+    } else {
+        assembly_qc_done = Channel.value([])
+    }
 
     // ---------------------
     // Sequence search analysis
@@ -343,19 +384,19 @@ workflow denovo_query {
 
             gth_done = CombineGTHHits.out.combined_cds
                 .map { query_id, fasta -> fasta }
-            all_done = SummarizeAssemblyMetrics.out
+            all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
                 .mix(gth_done)
                 .collect()
 
         } else {
-            all_done = SummarizeAssemblyMetrics.out
+            all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
                 .collect()
         }
 
     } else {
-        all_done = SummarizeAssemblyMetrics.out.collect()
+        all_done = assembly_qc_done.collect()
     }
 
     // ---------------------

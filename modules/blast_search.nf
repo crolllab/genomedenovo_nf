@@ -144,22 +144,27 @@ process BLASTsearch {
     script:
     // Choose BLAST tool based on sequence type
     def blast_tool = (seq_type == "protein") ? "tblastn" : "blastn"
+    // Sanitise sample_id for safe use as a shell filename (replace chars unsafe in unquoted contexts)
+    def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
     """
     # Create BLAST database from scaffolds
-    makeblastdb -in ${scaffolds_fasta} -dbtype nucl -out ${sample_id}_db
-    
+    makeblastdb -in ${scaffolds_fasta} -dbtype nucl -out ${safe_id}_db
+
     # Run appropriate BLAST search based on query type
     echo "Running ${blast_tool} for ${seq_type} query: ${query_id}"
-    
+
     ${blast_tool} -query ${query_fasta} \\
-           -db ${sample_id}_db \\
-           -out ${sample_id}_blast_results.tsv \\
+           -db ${safe_id}_db \\
+           -out ${safe_id}_blast_results.tsv \\
            -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore" \\
            -num_threads ${task.cpus} \\
            -evalue 1e-5
-    
+
+    # Rename to the real sample_id in the output filename, using a safe temp name
+    mv ${safe_id}_blast_results.tsv "${sample_id}_blast_results.tsv"
+
     # Clean up database files
-    rm -f ${sample_id}_db.*
+    rm -f ${safe_id}_db.*
     """
 }
 

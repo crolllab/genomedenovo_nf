@@ -9,10 +9,9 @@
 // GTHsearch  (genomethreader container — no python3, BusyBox shell)
 // ---------------------------------------------------------------------------
 process GTHsearch {
-    tag "GTH: ${sample_id} vs ${query_id}"
+    tag "GTH search in assemblies"
     errorStrategy 'ignore'
-    memory '8GB'
-    cpus 1
+    publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy', pattern: "*_gth.gff3"
 
     input:
     tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)
@@ -32,8 +31,8 @@ process GTHsearch {
     # -skipalignmentout : suppress verbose alignment text
     gth -genomic ${scaffolds_fasta} ${gth_mode} ${query_fasta} \
         -gff3out -skipalignmentout \
-        > ${sample_id}_gth.gff3 \
-        2> ${sample_id}_gth.log || true
+        > "${sample_id}_gth.gff3" \
+        2> "${sample_id}_gth.log" || true
     """
 }
 
@@ -42,10 +41,8 @@ process GTHsearch {
 // Parses the GTH GFF3 and extracts CDS + protein sequences per sample.
 // ---------------------------------------------------------------------------
 process ExtractGTHCds {
-    tag "Extract GTH CDS: ${sample_id}"
+    tag "Extract GTH CDS"
     errorStrategy 'ignore'
-    cpus 1
-    memory '2GB'
     publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy'
 
     input:
@@ -62,10 +59,10 @@ process ExtractGTHCds {
     set -euo pipefail
 
     # Initialise empty output files
-    touch ${sample_id}_gth_cds.fasta
-    touch ${sample_id}_gth_protein.fasta
+    touch "${sample_id}_gth_cds.fasta"
+    touch "${sample_id}_gth_protein.fasta"
     printf 'Sample_ID\tQuery_ID\tScaffold\tStrand\tExon_Count\tCDS_Length\tProtein_Length\tExon_Coordinates\n' \
-        > ${sample_id}_gth_summary.tsv
+        > "${sample_id}_gth_summary.tsv"
 
     # Use grep -F with a literal tab (works in BusyBox and GNU grep)
     TAB=\$(printf '\t')
@@ -74,10 +71,10 @@ process ExtractGTHCds {
         extract_gth_cds.py \
             ${scaffolds_fasta} \
             ${gff3_file} \
-            ${sample_id} \
+            "${sample_id}" \
             "\${QUERY_ID}"
     else
-        echo "No CDS features found in GTH output for ${sample_id}" >> ${sample_id}_gth_extract.log
+        echo "No CDS features found in GTH output for ${sample_id}" >> "${sample_id}_gth_extract.log"
     fi
     """
 }
@@ -86,7 +83,7 @@ process ExtractGTHCds {
 // CombineGTHHits
 // ---------------------------------------------------------------------------
 process CombineGTHHits {
-    tag "Combining GTH hits for ${query_id}"
+    tag "Combining GTH hits"
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
 
     input:
@@ -147,6 +144,64 @@ process CombineGTHHits {
         [[ "\${f}" == "\${clean_query_id}_all_gth_protein.fasta" ]] && continue
         [ -s "\${f}" ] && cat "\${f}" >> "\${clean_query_id}_all_gth_protein.fasta" || true
     done
+
+    # -------------------------------------------------------------------------
+    # If query is nucleotide, translate it and prepend to the protein FASTA so
+    # the protein alignment includes the reference sequence in protein form.
+    # -------------------------------------------------------------------------
+    if [ "\${query_type}" = "nucleotide" ] && [ -f "${query_fasta}" ]; then
+        python3 - "${query_fasta}" "\${clean_query_id}_all_gth_protein.fasta" << 'PYEOF'
+import sys, os
+
+CODON = {
+    "TTT":"F","TTC":"F","TTA":"L","TTG":"L","CTT":"L","CTC":"L","CTA":"L","CTG":"L",
+    "ATT":"I","ATC":"I","ATA":"I","ATG":"M","GTT":"V","GTC":"V","GTA":"V","GTG":"V",
+    "TCT":"S","TCC":"S","TCA":"S","TCG":"S","CCT":"P","CCC":"P","CCA":"P","CCG":"P",
+    "ACT":"T","ACC":"T","ACA":"T","ACG":"T","GCT":"A","GCC":"A","GCA":"A","GCG":"A",
+    "TAT":"Y","TAC":"Y","TAA":"*","TAG":"*","CAT":"H","CAC":"H","CAA":"Q","CAG":"Q",
+    "AAT":"N","AAC":"N","AAA":"K","AAG":"K","GAT":"D","GAC":"D","GAA":"E","GAG":"E",
+    "TGT":"C","TGC":"C","TGA":"*","TGG":"W","CGT":"R","CGC":"R","CGA":"R","CGG":"R",
+    "AGT":"S","AGC":"S","AGA":"R","AGG":"R","GGT":"G","GGC":"G","GGA":"G","GGG":"G",
+}
+
+def read_fasta(path):
+    seqs, name, buf = {}, None, []
+    for line in open(path):
+        line = line.rstrip()
+        if line.startswith(">"):
+            if name:
+                seqs[name] = "".join(buf).upper()
+            name = line[1:].split()[0]
+            buf = []
+        else:
+            buf.append(line)
+    if name:
+        seqs[name] = "".join(buf).upper()
+    return seqs
+
+def translate(seq):
+    prot = []
+    for i in range(0, len(seq) - 2, 3):
+        aa = CODON.get(seq[i:i+3], "X")
+        if aa == "*":
+            break
+        prot.append(aa)
+    return "".join(prot)
+
+fasta_path, out_path = sys.argv[1], sys.argv[2]
+seqs = read_fasta(fasta_path)
+tmp = out_path + ".tmp"
+with open(tmp, "w") as out:
+    for name, seq in seqs.items():
+        prot = translate(seq)
+        out.write(">" + name + "_query_prot\\n")
+        for i in range(0, len(prot), 60):
+            out.write(prot[i:i+60] + "\\n")
+    if os.path.exists(out_path):
+        out.write(open(out_path).read())
+os.replace(tmp, out_path)
+PYEOF
+    fi
 
     # -------------------------------------------------------------------------
     # Combined summary TSV

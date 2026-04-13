@@ -2,8 +2,6 @@
 process AlignMAFFT {
     tag "MAFFT alignment for: ${query_id}"
     errorStrategy 'ignore'
-    memory '8GB'
-    cpus 8
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
     
     input:
@@ -18,13 +16,15 @@ process AlignMAFFT {
     #!/bin/bash
     set -euo pipefail
     
-    # Sanitize query_id for filename use (replace special characters)
-    clean_query_id="\$(echo '${query_id}' | sed 's|[^a-zA-Z0-9_.-]|_|g')"
+    # Derive output prefix from the input filename so that multiple MAFFT
+    # invocations for the same query (BLAST hits, GTH CDS, GTH protein) each
+    # produce distinct output files and do not overwrite each other.
+    file_stem="\$(basename '${sequences_fasta}' .fasta)"
     
     # Check if sequences file exists and is not empty
     if [ ! -s "${sequences_fasta}" ]; then
-        echo "No sequences found for alignment" > "\${clean_query_id}_mafft_alignment_log.txt"
-        touch "\${clean_query_id}_aligned_sequences.fasta"
+        echo "No sequences found for alignment" > "\${file_stem}_mafft_alignment_log.txt"
+        touch "\${file_stem}_aligned_sequences.fasta"
         exit 0
     fi
     
@@ -33,56 +33,66 @@ process AlignMAFFT {
     
     # Check if we have enough sequences for alignment (at least 2)
     if [ "\$seq_count" -lt 2 ]; then
-        echo "Insufficient sequences for alignment (found \$seq_count sequences, need at least 2)" > "\${clean_query_id}_mafft_alignment_log.txt"
-        cp "${sequences_fasta}" "\${clean_query_id}_aligned_sequences.fasta"
+        echo "Insufficient sequences for alignment (found \$seq_count sequences, need at least 2)" > "\${file_stem}_mafft_alignment_log.txt"
+        cp "${sequences_fasta}" "\${file_stem}_aligned_sequences.fasta"
         exit 0
     fi
     
-    echo "Starting MAFFT alignment with \$seq_count sequences" > "\${clean_query_id}_mafft_alignment_log.txt"
-    echo "Input file: ${sequences_fasta}" >> "\${clean_query_id}_mafft_alignment_log.txt"
+    echo "Starting MAFFT alignment with \$seq_count sequences" > "\${file_stem}_mafft_alignment_log.txt"
+    echo "Input file: ${sequences_fasta}" >> "\${file_stem}_mafft_alignment_log.txt"
 
-    # Detect whether the first sequence is protein or nucleotide.
-    # When the BLAST query is a protein (tblastn), CombineBlastHits prepends
-    # the protein query to nucleotide hit sequences.  MAFFT cannot align that
-    # mixture in nucleotide mode, so we strip the protein query and align only
-    # the nucleotide hit sequences.
+    # Detect whether this is a mixed case (protein query prepended to nucleotide
+    # hit sequences, as in tblastn BLAST output).  Only strip the first sequence
+    # when the first is protein-type AND the second is nucleotide-type.
+    # If both are the same type (all-nucleotide or all-protein), align all.
     first_seq="\$(awk 'BEGIN{found=0}/^>/{if(found)exit;found=1;next}found{printf "%s",\$0}' "${sequences_fasta}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+    second_seq="\$(awk 'BEGIN{n=0}/^>/{n++;next} n==2{printf "%s",\$0}' "${sequences_fasta}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+
     first_len=\${#first_seq}
+    second_len=\${#second_seq}
+
+    first_is_nuc=true
+    second_is_nuc=true
+
     if [ "\$first_len" -gt 0 ]; then
         nuc_chars=\$(printf '%s' "\${first_seq}" | tr -cd 'ATGCUN' | wc -c)
-        nuc_pct=\$((nuc_chars * 100 / first_len))
-    else
-        nuc_pct=100
+        pct=\$((nuc_chars * 100 / first_len))
+        [ "\$pct" -lt 95 ] && first_is_nuc=false
+    fi
+    if [ "\$second_len" -gt 0 ]; then
+        nuc_chars=\$(printf '%s' "\${second_seq}" | tr -cd 'ATGCUN' | wc -c)
+        pct=\$((nuc_chars * 100 / second_len))
+        [ "\$pct" -lt 95 ] && second_is_nuc=false
     fi
 
-    if [ "\$nuc_pct" -lt 95 ]; then
-        # First sequence is a protein query — keep only the nucleotide hit sequences
-        echo "Protein query detected as first sequence (nuc% = \${nuc_pct}); aligning nucleotide hit sequences only" >> "\${clean_query_id}_mafft_alignment_log.txt"
-        awk '/^>/{count++} count>=2' "${sequences_fasta}" > "\${clean_query_id}_input.fasta"
-        align_input="\${clean_query_id}_input.fasta"
-        nuc_count=\$(grep -c "^>" "\${clean_query_id}_input.fasta" || echo "0")
+    if [ "\${first_is_nuc}" = "false" ] && [ "\${second_is_nuc}" = "true" ]; then
+        # Protein query prepended to nucleotide hit sequences — align only hits
+        echo "Protein query + nucleotide hits detected; aligning nucleotide hit sequences only" >> "\${file_stem}_mafft_alignment_log.txt"
+        awk '/^>/{count++} count>=2' "${sequences_fasta}" > "\${file_stem}_input.fasta"
+        align_input="\${file_stem}_input.fasta"
+        nuc_count=\$(grep -c "^>" "\${file_stem}_input.fasta" || echo "0")
         if [ "\${nuc_count}" -lt 2 ]; then
-            echo "Insufficient nucleotide sequences after removing protein query (found \${nuc_count})" >> "\${clean_query_id}_mafft_alignment_log.txt"
-            touch "\${clean_query_id}_aligned_sequences.fasta"
+            echo "Insufficient nucleotide sequences after removing protein query (found \${nuc_count})" >> "\${file_stem}_mafft_alignment_log.txt"
+            touch "\${file_stem}_aligned_sequences.fasta"
             exit 0
         fi
     else
         align_input="${sequences_fasta}"
     fi
 
-    echo "Command: mafft --auto --adjustdirection \${align_input}" >> "\${clean_query_id}_mafft_alignment_log.txt"
-    echo "---" >> "\${clean_query_id}_mafft_alignment_log.txt"
+    echo "Command: mafft --auto --adjustdirection \${align_input}" >> "\${file_stem}_mafft_alignment_log.txt"
+    echo "---" >> "\${file_stem}_mafft_alignment_log.txt"
 
     # Run MAFFT with auto mode and direction adjustment
-    mafft --thread ${task.cpus} --auto --adjustdirection "\${align_input}" > "\${clean_query_id}_aligned_sequences.fasta" 2>> "\${clean_query_id}_mafft_alignment_log.txt"
+    mafft --thread ${task.cpus} --auto --adjustdirection "\${align_input}" > "\${file_stem}_aligned_sequences.fasta" 2>> "\${file_stem}_mafft_alignment_log.txt"
     
     # Check if alignment was successful
-    if [ -s "\${clean_query_id}_aligned_sequences.fasta" ]; then
-        aligned_count=\$(grep -c "^>" "\${clean_query_id}_aligned_sequences.fasta" || echo "0")
-        echo "Alignment completed successfully with \$aligned_count sequences" >> "\${clean_query_id}_mafft_alignment_log.txt"
+    if [ -s "\${file_stem}_aligned_sequences.fasta" ]; then
+        aligned_count=\$(grep -c "^>" "\${file_stem}_aligned_sequences.fasta" || echo "0")
+        echo "Alignment completed successfully with \$aligned_count sequences" >> "\${file_stem}_mafft_alignment_log.txt"
     else
-        echo "WARNING: Alignment output file is empty or missing" >> "\${clean_query_id}_mafft_alignment_log.txt"
-        touch "\${clean_query_id}_aligned_sequences.fasta"
+        echo "WARNING: Alignment output file is empty or missing" >> "\${file_stem}_mafft_alignment_log.txt"
+        touch "\${file_stem}_aligned_sequences.fasta"
     fi
     """
 }

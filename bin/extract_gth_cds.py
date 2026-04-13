@@ -18,6 +18,7 @@ Strand handling:
               spliced mRNA regardless of the number of exons.
 """
 
+import re
 import sys
 from collections import defaultdict
 
@@ -27,7 +28,12 @@ from collections import defaultdict
 # ---------------------------------------------------------------------------
 
 def read_fasta(path):
-    """Return {seq_id: uppercase_sequence} for all sequences in *path*."""
+    """Return {seq_id: uppercase_sequence} for all sequences in *path*.
+
+    GTH truncates sequence names at ':' when writing GFF3 seqids, so
+    strip any ':start-end' coordinate suffix (added by samtools faidx or
+    the extract_blast_hits step) to ensure GFF3 lookups succeed.
+    """
     seqs, name, buf = {}, None, []
     with open(path) as fh:
         for line in fh:
@@ -35,7 +41,9 @@ def read_fasta(path):
             if line.startswith('>'):
                 if name:
                     seqs[name] = ''.join(buf).upper()
-                name = line[1:].split()[0]
+                raw_name = line[1:].split()[0]
+                # Strip samtools-style coordinate suffix, e.g. "SCAFFOLD:1-428"
+                name = re.sub(r':\d+-\d+$', '', raw_name)
                 buf = []
             else:
                 buf.append(line)
@@ -162,7 +170,9 @@ def main():
             'Exon_Count\tCDS_Length\tProtein_Length\tExon_Coordinates\n'
         )
 
-        for parent_id, exons in sorted(cds_by_parent.items()):
+        n_models = len(cds_by_parent)
+
+        for model_idx, (parent_id, exons) in enumerate(sorted(cds_by_parent.items()), start=1):
             strand   = parent_strand[parent_id]
             scaffold = parent_scaffold[parent_id]
 
@@ -192,8 +202,10 @@ def main():
             if not full_cds:
                 continue
 
-            prot   = translate(full_cds)
-            header = f'{sample_id}_{parent_id}'
+            prot = translate(full_cds)
+            # Name by sample_id for the common single-model case; add a
+            # numeric suffix only when GTH reports multiple gene models.
+            header = sample_id if n_models == 1 else f'{sample_id}_{model_idx}'
 
             cds_out.write(f'>{header}\n{wrap(full_cds)}\n')
             prot_out.write(f'>{header}_prot\n{wrap(prot)}\n')

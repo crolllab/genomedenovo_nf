@@ -83,7 +83,13 @@ Available parameters
   - Supports multi-sequence FASTA files - each sequence is processed independently
   - Detection: Sequences with ≥95% ATGCUN characters are classified as nucleotide, otherwise protein
 
-- `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `100`.
+- `--search_tool`: Optional. Choose the sequence search tool. Default: `blast`.
+  - `blast` — BLAST search only (blastn for nucleotide queries, tblastn for protein queries).
+  - `gth` — BLAST search plus **GenomeThreader** spliced alignment. GTH resolves exact exon/intron boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool gth`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA. GTH treats the nucleotide query as an EST/cDNA and will produce incorrect results if the query contains introns. Protein queries are always safe to use with GTH.
+
+- `--skip_quast`: Optional flag. When set, skips the QUAST assembly quality assessment step. Useful when running on pre-assembled scaffolds that have already been assessed, or to speed up BLAST/GTH-only runs.
+
+- `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `500`.
   - Example: `--padding 100` extracts hit region plus 100 bp upstream and 100 bp downstream
   - Useful for capturing regulatory regions, promoters, or getting more context around hits
   - Automatically ensures coordinates stay within scaffold boundaries
@@ -110,6 +116,15 @@ Available parameters
      ```bash
      --scaffolds '/path/to/folder/*.fasta'
      ```
+
+- `--SRR_sample_map`: Optional. A CSV file mapping sample IDs (as derived from FASTQ filenames, SRA accessions, or scaffold directory names) to user-defined names. This is useful for renaming samples to meaningful isolate or strain identifiers before output is written. The CSV format is: `original_id,new_name` (one mapping per line, no header). If a sample ID is not listed in the file, the original ID is kept unchanged. Default: `false` (no mapping).
+
+  Example `sample_map.csv`:
+  ```
+  E1,Iran_2024_A3ghp1i
+  E2,Iran_2024_A3ghp3b
+  SRR1234567,MyIsolate_A
+  ```
 
 ## Step 3: Run `genomedenovo_nf` - example options
 

@@ -1,9 +1,9 @@
 // Fixed SPAdes process for specific file outputs
 process SPAdes {
     tag "SPAdes assembly: ${sample_id}"
-    errorStrategy 'ignore'
-    memory '64GB'
-    cpus 8
+    errorStrategy 'retry'
+    maxRetries 3
+
     publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/contigs.fasta"
     publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/scaffolds.fasta"
     publishDir "${params.outdir}/spades_stats", mode: 'copy', pattern: "${sample_id}/spades.log"
@@ -58,9 +58,9 @@ process SPAdes {
 // SPAdes process for single-end reads
 process SPAdesSE {
     tag "SPAdes SE assembly: ${sample_id}"
-    errorStrategy 'ignore'
-    memory '64GB'
-    cpus 8
+    errorStrategy 'retry'
+    maxRetries 3
+
     publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/contigs.fasta"
     publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/scaffolds.fasta"
     publishDir "${params.outdir}/spades_stats", mode: 'copy', pattern: "${sample_id}/spades.log"

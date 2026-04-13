@@ -22,36 +22,59 @@ process ExtractBlastHits {
     PADDING=${params.padding}
     
     # Create header for hit info file
-    echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > ${sample_id}_top_hits_info.tsv
+    echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > "${sample_id}_top_hits_info.tsv"
     
     # Check if BLAST results file exists and is not empty
     if [ ! -s "${blast_results}" ]; then
-        touch ${sample_id}_top_hits.fasta
+        touch "${sample_id}_top_hits.fasta"
         exit 0
     fi
     
-    # Extract top hit per query (highest bit score)
+    # For each query, find the best scaffold (highest bitscore) then merge ALL
+    # hit coordinates from that scaffold into a single genomic span.
+    # This ensures multi-exon genes (where each exon is a separate BLAST hit)
+    # are fully covered in the extracted region fed to GTH.
     awk -F'\t' '
     {
         # BLAST format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
-        query = \$1
-        bitscore = \$12
-        
-        # Keep track of best hit per query (highest bitscore)
-        if (!(query in best_bitscore) || bitscore > best_bitscore[query]) {
-            best_bitscore[query] = bitscore
-            best_hit[query] = \$0
+        query    = \$1
+        sseqid   = \$2
+        bitscore = \$12 + 0
+        # Store every row for the second loop
+        rows[NR]      = \$0
+        q_arr[NR]     = query
+        s_arr[NR]     = sseqid
+        ss_arr[NR]    = \$9 + 0
+        se_arr[NR]    = \$10 + 0
+        bs_arr[NR]    = bitscore
+        n = NR
+        # Track best scaffold per query
+        if (!(query in best_bs) || bitscore > best_bs[query]) {
+            best_bs[query]  = bitscore
+            best_sc[query]  = sseqid
+            best_row[query] = NR
         }
     }
     END {
-        for (query in best_hit) {
-            print best_hit[query]
+        for (q in best_sc) {
+            s = best_sc[q]
+            min_c = -1; max_c = -1
+            for (i = 1; i <= n; i++) {
+                if (q_arr[i] != q || s_arr[i] != s) continue
+                lo = (ss_arr[i] < se_arr[i]) ? ss_arr[i] : se_arr[i]
+                hi = (ss_arr[i] > se_arr[i]) ? ss_arr[i] : se_arr[i]
+                if (min_c < 0 || lo < min_c) min_c = lo
+                if (max_c < 0 || hi > max_c) max_c = hi
+            }
+            split(rows[best_row[q]], f, "\t")
+            # Output merged span (sstart=min, send=max — always forward)
+            print f[1]"\t"f[2]"\t"f[3]"\t"f[4]"\t"f[5]"\t"f[6]"\t"f[7]"\t"f[8]"\t"min_c"\t"max_c"\t"f[11]"\t"f[12]
         }
     }' "${blast_results}" > top_hits.tsv
     
     # Check if we have any hits
     if [ ! -s top_hits.tsv ]; then
-        touch ${sample_id}_top_hits.fasta
+        touch "${sample_id}_top_hits.fasta"
         exit 0
     fi
     
@@ -59,7 +82,7 @@ process ExtractBlastHits {
     samtools faidx "${scaffolds_fasta}"
     
     # Process each top hit
-    > ${sample_id}_top_hits.fasta
+    > "${sample_id}_top_hits.fasta"
     
     while IFS=\$'\t' read -r qseqid sseqid pident align_length mismatch gapopen qstart qend sstart send evalue bitscore; do
         # Determine start and end coordinates (ensure start < end for samtools)
@@ -134,13 +157,13 @@ process ExtractBlastHits {
                 mv temp_rc.txt temp_seq.txt
             fi
             
-            # Write sequence with informative header (show padded coordinates)
-            echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
-            fold -w 60 temp_seq.txt >> ${sample_id}_top_hits.fasta
-            echo "" >> ${sample_id}_top_hits.fasta
+            # Write sequence with sample name as header
+            echo ">${sample_id}" >> "${sample_id}_top_hits.fasta"
+            fold -w 60 temp_seq.txt >> "${sample_id}_top_hits.fasta"
+            echo "" >> "${sample_id}_top_hits.fasta"
             
             # Add hit information to TSV (use original BLAST hit coordinates, not padded)
-            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
             rm temp_hit.fasta temp_seq.txt temp_samtools_error.log 2>/dev/null || true
         else
             # Log samtools error details
@@ -167,13 +190,13 @@ process ExtractBlastHits {
                             mv temp_rc.txt temp_subseq.txt
                         fi
                         
-                        echo ">${sample_id}_\${qseqid}_hit_\${sseqid}:\${start}-\${end}" >> ${sample_id}_top_hits.fasta
+                        echo ">${sample_id}" >> "${sample_id}_top_hits.fasta"
                         # Add newlines every 60 characters for proper FASTA format
-                        fold -w 60 temp_subseq.txt >> ${sample_id}_top_hits.fasta
-                        echo "" >> ${sample_id}_top_hits.fasta
+                        fold -w 60 temp_subseq.txt >> "${sample_id}_top_hits.fasta"
+                        echo "" >> "${sample_id}_top_hits.fasta"
                         
                         # Use original coordinates in TSV
-                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> ${sample_id}_top_hits_info.tsv
+                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
                     else
                         echo "ERROR: Fallback method failed - extracted sequence is empty for \${sseqid}:\${start}-\${end}" >&2
                     fi
@@ -194,8 +217,8 @@ process ExtractBlastHits {
     rm -f top_hits.tsv
     
     # If no sequences were extracted, ensure files exist
-    if [ ! -s ${sample_id}_top_hits.fasta ]; then
-        touch ${sample_id}_top_hits.fasta
+    if [ ! -s "${sample_id}_top_hits.fasta" ]; then
+        touch "${sample_id}_top_hits.fasta"
     fi
     """
 }
