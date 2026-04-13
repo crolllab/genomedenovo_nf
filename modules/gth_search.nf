@@ -71,7 +71,7 @@ process ExtractGTHCds {
     TAB=\$(printf '\t')
     if grep -qF "\${TAB}CDS\${TAB}" ${gff3_file} 2>/dev/null; then
         QUERY_ID='${query_id}'
-        python3 extract_gth_cds.py \
+        extract_gth_cds.py \
             ${scaffolds_fasta} \
             ${gff3_file} \
             ${sample_id} \
