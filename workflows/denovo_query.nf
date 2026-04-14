@@ -166,39 +166,43 @@ workflow denovo_query {
     // Local scaffold files
     // ---------------------
     if (params.scaffolds) {
-        scaffolds_path = params.scaffolds
-        
-        // Check if it's a directory containing subdirectories with scaffolds.fasta
-        if (scaffolds_path.contains('**') || scaffolds_path.contains('*')) {
-            // It's a glob pattern - use directly
-            local_scaffolds_ch = Channel
-                .fromPath(scaffolds_path, checkIfExists: true)
-                .map { file ->
-                    def base = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
-                    // If the filename is a generic name (e.g. "scaffolds"), use
-                    // the parent directory name as the sample_id instead
-                    def sample_id = (base ==~ /scaffolds?|assembly|genome|contigs?/) ? file.parent.name : base
-                    [sample_id, file]
-                }
-        } else if (file(scaffolds_path).exists() && file(scaffolds_path).isDirectory()) {
-            // Pattern to find scaffolds.fasta in subdirectories: parent_dir/*/scaffolds.fasta
-            scaffolds_pattern = "${scaffolds_path}/*/scaffolds.{fasta,fa,fna}"
-            
-            local_scaffolds_ch = Channel
-                .fromPath(scaffolds_pattern, checkIfExists: true)
-                .map { file ->
-                    // Use the parent directory name as sample_id
-                    def sample_id = file.parent.name
-                    [sample_id, file]
-                }
-        } else {
-            // If it's a file pattern or specific file(s)
-            local_scaffolds_ch = Channel
-                .fromPath(scaffolds_path, checkIfExists: true)
-                .map { file ->
-                    def sample_id = file.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
-                    [sample_id, file]
-                }
+        // Support comma-separated list of paths/globs (or a single entry)
+        def scaffold_entries = params.scaffolds.tokenize(',').collect { it.trim() }
+
+        local_scaffolds_ch = scaffold_entries.inject(Channel.empty()) { acc, scaffolds_path ->
+            def path_ch
+            // Check if it's a glob pattern
+            if (scaffolds_path.contains('**') || scaffolds_path.contains('*')) {
+                // It's a glob pattern - use directly
+                path_ch = Channel
+                    .fromPath(scaffolds_path, checkIfExists: true)
+                    .map { f ->
+                        def base = f.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
+                        // If the filename is a generic name (e.g. "scaffolds"), use
+                        // the parent directory name as the sample_id instead
+                        def sample_id = (base ==~ /scaffolds?|assembly|genome|contigs?/) ? f.parent.name : base
+                        [sample_id, f]
+                    }
+            } else if (file(scaffolds_path).exists() && file(scaffolds_path).isDirectory()) {
+                // Pattern to find scaffolds.fasta in subdirectories: parent_dir/*/scaffolds.fasta
+                def scaffolds_pattern = "${scaffolds_path}/*/scaffolds.{fasta,fa,fna}"
+                path_ch = Channel
+                    .fromPath(scaffolds_pattern, checkIfExists: true)
+                    .map { f ->
+                        // Use the parent directory name as sample_id
+                        def sample_id = f.parent.name
+                        [sample_id, f]
+                    }
+            } else {
+                // If it's a file pattern or specific file(s)
+                path_ch = Channel
+                    .fromPath(scaffolds_path, checkIfExists: true)
+                    .map { f ->
+                        def sample_id = f.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
+                        [sample_id, f]
+                    }
+            }
+            acc.mix(path_ch)
         }
     } else {
         local_scaffolds_ch = Channel.empty()

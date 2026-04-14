@@ -99,9 +99,15 @@ Available parameters
 
 - `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. The pipeline automatically handles both paired-end and single-end SRA reads. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
 
-- `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis. 
+- `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis.
 
-  **Two input modes supported:**
+  Multiple sources can be combined by passing a **comma-separated list** of paths or glob patterns (wrap the whole value in single quotes):
+  ```bash
+  --scaffolds '/path/to/dir1,/path/to/dir2'
+  --scaffolds '/path/to/dir1,/legserv/NGS_data/**/scaffolds.fasta'
+  ```
+
+  **Three input modes supported (combinable via comma-separated list):**
   1. **Directory with multiple samples**: Provide a directory path where each subdirectory contains a `scaffolds.fasta` file. The subdirectory name will be used as the sample ID.
      ```bash
      --scaffolds '/path/to/assemblies'
@@ -111,8 +117,13 @@ Available parameters
      #     sample2/scaffolds.fasta
      #     sample3/scaffolds.fasta
      ```
-  
-  2. **Direct file pattern**: Provide a glob pattern to match specific fasta files. The base filename will be used as the sample ID.
+
+  2. **Recursive glob pattern**: Provide a glob pattern (with `**`) to match `scaffolds.fasta` files across a directory tree. The parent directory name will be used as the sample ID.
+     ```bash
+     --scaffolds '/legserv/NGS_data/**/scaffolds.fasta'
+     ```
+
+  3. **Direct file pattern**: Provide a glob pattern to match specific fasta files. The base filename will be used as the sample ID.
      ```bash
      --scaffolds '/path/to/folder/*.fasta'
      ```
