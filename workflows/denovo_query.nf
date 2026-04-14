@@ -101,8 +101,10 @@ workflow denovo_query {
     if (params.reads || params.SRA_index) {
         // Handle local FASTQ reads
         if (params.reads) {
+            // Support comma-separated list of glob patterns
+            def reads_patterns = params.reads.tokenize(';').collect { it.trim() }
             read_pairs_local_ch = Channel.fromFilePairs(
-                params.reads,
+                reads_patterns,
                 checkIfExists: true,
                 flat: false,
                 size: 2
@@ -167,7 +169,7 @@ workflow denovo_query {
     // ---------------------
     if (params.scaffolds) {
         // Support comma-separated list of paths/globs (or a single entry)
-        def scaffold_entries = params.scaffolds.tokenize(',').collect { it.trim() }
+        def scaffold_entries = params.scaffolds.tokenize(';').collect { it.trim() }
 
         local_scaffolds_ch = scaffold_entries.inject(Channel.empty()) { acc, scaffolds_path ->
             def path_ch

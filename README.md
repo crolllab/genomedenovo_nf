@@ -97,17 +97,22 @@ Available parameters
 
 - `--reads`: Optional. Provide the path to the folder containing the fastq read files. The pipeline will automatically find paired-end read files based on the naming convention. Must be bracketed by single quotes `'`. See below for examples. Note: Local file input currently supports paired-end reads only. Single-end reads are supported via `--SRA_index`.
 
+  Multiple glob patterns can be combined by passing a **semicolon-separated list** (wrap the whole value in single quotes). A semicolon is used as the separator to avoid conflicts with brace expansions like `{1,2}` in glob patterns:
+  ```bash
+  --reads '/path/to/dir1/**_{1,2}.fq.gz;/path/to/dir2/**_{1,2}.fq.gz'
+  ```
+
 - `--SRA_index`: Optional. Instead of local fastq files, you can provide a file listing NCBI SRA accessions (or ENA, etc.) with one accession per line including `SRR...`, `SRP...`, `SRX...`, `PRNJ...`, etc. If the accession includes multiple `SRR...` runs, all included runs are processed. The pipeline automatically handles both paired-end and single-end SRA reads. You can use the [SRA Explorer](https://sra-explorer.info) to collect accession ids. 
 
 - `--scaffolds`: Optional. Instead of assembling reads, you can provide already assembled draft genomes in fasta format. The pipeline will then skip the assembly step and proceed with the quality assessment and BLAST analysis.
 
-  Multiple sources can be combined by passing a **comma-separated list** of paths or glob patterns (wrap the whole value in single quotes):
+  Multiple sources can be combined by passing a **semicolon-separated list** of paths or glob patterns (wrap the whole value in single quotes):
   ```bash
-  --scaffolds '/path/to/dir1,/path/to/dir2'
-  --scaffolds '/path/to/dir1,/legserv/NGS_data/**/scaffolds.fasta'
+  --scaffolds '/path/to/dir1;/path/to/dir2'
+  --scaffolds '/path/to/dir1;/legserv/NGS_data/**/scaffolds.fasta'
   ```
 
-  **Three input modes supported (combinable via comma-separated list):**
+  **Three input modes supported (combinable via semicolon-separated list):**
   1. **Directory with multiple samples**: Provide a directory path where each subdirectory contains a `scaffolds.fasta` file. The subdirectory name will be used as the sample ID.
      ```bash
      --scaffolds '/path/to/assemblies'
@@ -143,7 +148,7 @@ The below example is based on the _Zymoseptoria tritici_ Illumina paired-end rea
 
 ### Select sets of local fastq file pairs
 
-The following examples show different ways to select paired-end fastq files. The `--reads` option must be bracketed by single quotes `'`. The examples assume that the read files are named according to the Illumina convention, i.e. ending with `_1.fq.gz` and `_2.fq.gz` or `_R1.fq.gz` and `_R2.fq.gz`. Adjust the patterns according to your own naming conventions.
+The following examples show different ways to select paired-end fastq files. The `--reads` option must be bracketed by single quotes `'`. Multiple glob patterns can be combined with a semicolon-separated list. The examples assume that the read files are named according to the Illumina convention, i.e. ending with `_1.fq.gz` and `_2.fq.gz` or `_R1.fq.gz` and `_R2.fq.gz`. Adjust the patterns according to your own naming conventions.
 
 ```bash
 # Option 1 - select all fastq files ending with _1.fq.gz and _2.fq.gz
