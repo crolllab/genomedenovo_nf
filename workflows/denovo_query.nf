@@ -5,6 +5,7 @@ nextflow.enable.dsl=2
 // ---------------------
 include { SRAresolve } from '../modules/resolve_SRA'
 include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
+include { trimSequencesPE; trimSequencesSE } from '../modules/fastp_trimming'
 include { SPAdes; SPAdesSE } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
@@ -152,11 +153,23 @@ workflow denovo_query {
         // Combine PE reads from different sources
         combined_pe_ch = sra_pe_formatted.mix(local_pe_formatted)
 
+        // Trim PE reads with fastp before assembly
+        trimSequencesPE(combined_pe_ch)
+        trimmed_pe_ch = trimSequencesPE.out.reads.map { sample_id, reads ->
+            [sample_id, reads[0], reads[1], 'trimmed']
+        }
+
+        // Trim SE reads with fastp before assembly
+        trimSequencesSE(sra_se_formatted)
+        trimmed_se_ch = trimSequencesSE.out.reads.map { sample_id, read ->
+            [sample_id, read, 'trimmed']
+        }
+
         // Run SPAdes assembly for paired-end
-        SPAdes(combined_pe_ch)
+        SPAdes(trimmed_pe_ch)
         
         // Run SPAdes assembly for single-end
-        SPAdesSE(sra_se_formatted)
+        SPAdesSE(trimmed_se_ch)
         
         // Combine scaffolds from both PE and SE assemblies
         spades_scaffolds = SPAdes.out.scaffolds.mix(SPAdesSE.out.scaffolds)

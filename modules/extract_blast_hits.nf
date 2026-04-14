@@ -1,6 +1,6 @@
 // Process to extract top BLAST hit regions from assemblies
 process ExtractBlastHits {
-    tag "Extract BLAST hits for ${query_id}"
+    tag "Extract BLAST hits"
     errorStrategy 'ignore'
     memory '2GB'
     cpus 1
@@ -225,7 +225,7 @@ process ExtractBlastHits {
 
 // Process to combine all extracted hit sequences for a specific query
 process CombineBlastHits {
-    tag "Combining BLAST hits for ${query_id}"
+    tag "Combining BLAST hits"
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
     
     input:

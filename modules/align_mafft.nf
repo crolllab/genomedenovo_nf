@@ -1,6 +1,6 @@
 // Process to perform multiple sequence alignment on combined BLAST hit sequences using MAFFT
 process AlignMAFFT {
-    tag "MAFFT alignment for: ${query_id}"
+    tag "MAFFT alignment"
     errorStrategy 'ignore'
     publishDir "${params.outdir}/${query_id}", mode: 'copy'
     
