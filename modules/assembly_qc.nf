@@ -4,7 +4,7 @@ process QUAST {
     errorStrategy 'ignore'
     memory '4GB'
     cpus 1
-    publishDir "${params.outdir}/quast_reports", mode: 'copy', pattern: "${sample_id}_quast"
+    publishDir "${params.outdir}/quast", mode: 'copy', pattern: "${sample_id}_quast"
     
     input:
     tuple val(sample_id), path(scaffolds_fasta)
@@ -33,7 +33,7 @@ process QUAST {
 // Process to collect and summarize all QUAST metrics
 process SummarizeAssemblyMetrics {
     tag "Summarizing assembly metrics"
-    publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}/quast", mode: 'copy'
     
     input:
     path quast_reports

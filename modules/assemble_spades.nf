@@ -4,9 +4,9 @@ process SPAdes {
     errorStrategy 'retry'
     maxRetries 3
 
-    publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/contigs.fasta"
-    publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/scaffolds.fasta"
-    publishDir "${params.outdir}/spades_stats", mode: 'copy', pattern: "${sample_id}/spades.log"
+    publishDir "${params.outdir}/assemblies", mode: 'copy', pattern: "${sample_id}/contigs.fasta"
+    publishDir "${params.outdir}/assemblies", mode: 'copy', pattern: "${sample_id}/scaffolds.fasta"
+    publishDir "${params.outdir}/assemblies", mode: 'copy', pattern: "${sample_id}/spades.log"
     
     input:
     tuple val(sample_id), path(read1), path(read2), val(source)
@@ -61,9 +61,9 @@ process SPAdesSE {
     errorStrategy 'retry'
     maxRetries 3
 
-    publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/contigs.fasta"
-    publishDir "${params.outdir}/spades_assemblies", mode: 'copy', pattern: "${sample_id}/scaffolds.fasta"
-    publishDir "${params.outdir}/spades_stats", mode: 'copy', pattern: "${sample_id}/spades.log"
+    publishDir "${params.outdir}/assemblies", mode: 'copy', pattern: "${sample_id}/contigs.fasta"
+    publishDir "${params.outdir}/assemblies", mode: 'copy', pattern: "${sample_id}/scaffolds.fasta"
+    publishDir "${params.outdir}/assemblies", mode: 'copy', pattern: "${sample_id}/spades.log"
     
     input:
     tuple val(sample_id), path(read), val(source)

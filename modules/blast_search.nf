@@ -4,7 +4,7 @@ process SplitQuerySequences {
     cpus 4
     memory '2GB' 
 
-    publishDir "${params.outdir}/query_sequences", mode: 'copy'
+    publishDir "${params.outdir}/blast_hits/query_sequences", mode: 'copy'
     
     input:
     path blast_query
@@ -132,7 +132,7 @@ process BLASTsearch {
     errorStrategy 'ignore'
     memory '4GB'
     cpus 4
-    publishDir "${params.outdir}/${query_id}/blast_results", mode: 'copy'
+    publishDir "${params.outdir}/blast_hits/${query_id}/blast_results", mode: 'copy'
     
     input:
     tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)

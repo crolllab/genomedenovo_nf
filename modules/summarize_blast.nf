@@ -1,7 +1,7 @@
 // Process to merge all BLAST query summaries into a single wide-format table
 process MergeBlastSummaries {
     tag "Merging all BLAST summaries"
-    publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}/blast_hits", mode: 'copy'
     
     input:
     path summary_files  // All *_all_blast_hits_summary.tsv files

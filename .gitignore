@@ -5,5 +5,5 @@ nf_output
 run.sh
 *.fa
 *.fasta
-example/output/
+example/output*/
 work

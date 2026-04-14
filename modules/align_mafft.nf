@@ -2,7 +2,7 @@
 process AlignMAFFT {
     tag "MAFFT alignment"
     errorStrategy 'ignore'
-    publishDir "${params.outdir}/${query_id}", mode: 'copy'
+    publishDir "${params.outdir}/alignments/${query_id}", mode: 'copy'
     
     input:
     tuple val(query_id), path(sequences_fasta)

@@ -11,7 +11,7 @@
 process GTHsearch {
     tag "GTH search in assemblies"
     errorStrategy 'ignore'
-    publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy', pattern: "*_gth.gff3"
+    publishDir "${params.outdir}/gth_hits/${query_id}", mode: 'copy', pattern: "*_gth.gff3"
 
     input:
     tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)
@@ -43,7 +43,7 @@ process GTHsearch {
 process ExtractGTHCds {
     tag "Extract GTH CDS"
     errorStrategy 'ignore'
-    publishDir "${params.outdir}/${query_id}/gth_results", mode: 'copy'
+    publishDir "${params.outdir}/gth_hits/${query_id}", mode: 'copy'
 
     input:
     tuple val(query_id), val(sample_id), path(scaffolds_fasta), path(gff3_file)
@@ -84,7 +84,7 @@ process ExtractGTHCds {
 // ---------------------------------------------------------------------------
 process CombineGTHHits {
     tag "Combining GTH hits"
-    publishDir "${params.outdir}/${query_id}", mode: 'copy'
+    publishDir "${params.outdir}/gth_hits/${query_id}", mode: 'copy'
 
     input:
     tuple val(query_id), path(query_fasta), path(cds_fastas), path(protein_fastas), path(summary_tsvs)
