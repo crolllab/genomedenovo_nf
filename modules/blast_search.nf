@@ -132,7 +132,7 @@ process BLASTsearch {
     errorStrategy 'ignore'
     memory '4GB'
     cpus 4
-    publishDir "${params.outdir}/blast_hits/${query_id}/blast_results", mode: 'copy'
+    publishDir { "${params.outdir}/blast_hits/${query_id}/blast_results" }, mode: 'copy'
     
     input:
     tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)
@@ -166,25 +166,4 @@ process BLASTsearch {
     # Clean up database files
     rm -f ${safe_id}_db.*
     """
-}
-
-// Updated workflow section (add to your main workflow)
-workflow denovo_query {
-    // ... your existing code ...
-    
-    // Input validation - add this to your existing input checks
-    if (params.blast_query && !file(params.blast_query).exists()) {
-        exit 1, "ERROR: BLAST query file does not exist: ${params.blast_query}"
-    }
-    
-    // ... your existing SRA and SPAdes code ...
-    
-    // Run SPAdes
-    SPAdes(combined_pe_ch)
-    
-    // Run BLAST if query file is provided
-    if (params.blast_query) {
-        blast_query_file = file(params.blast_query)
-        BLASTn(SPAdes.out.scaffolds, blast_query_file)
-    }
 }

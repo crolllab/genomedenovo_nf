@@ -53,12 +53,13 @@ Three further LTEE runs from different populations are listed in
 
 Run from the repository root directory.
 
-**Option 1 — local FASTQ files only (3 samples, assembly + lacZ BLAST):**
+**Option 1 — local FASTQ files only (3 samples, assembly + BUSCO + lacZ BLAST):**
 
 ```bash
 nextflow run main.nf \
     --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
     --blast_query example/lacZ_WP_000177906.fasta \
+    --busco_lineage bacteria_odb10 \
     --outdir example/output
 ```
 

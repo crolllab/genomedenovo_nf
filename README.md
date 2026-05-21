@@ -31,37 +31,15 @@ micromamba create -n nf_gp_env -c conda-forge -c bioconda nextflow
 micromamba activate nf_gp_env
 ```
 
-### Get singularity images  
-The `singularity` folder must be in the same directory as the `main.nf` file.
-
-A copy of the compatible images is on LEGserv.
+Alternatively, if your HPC provides Nextflow as an environment module:
 
 ```bash
-rsync -va /legserv/Temp/Shared/genomedenovo_nf/singularity .
+module load Nextflow
 ```
 
-Alternatively, you can pull the images directly from the Galaxy Project depot.
+### Singularity containers
 
-```bash
-mkdir -p singularity
-cd singularity
-# entrez-direct
-singularity pull https://depot.galaxyproject.org/singularity/entrez-direct:24.0--he881be0_0
-# sratools
-singularity pull https://depot.galaxyproject.org/singularity/sra-tools%3A3.2.1--h4304569_1
-# SPAdes
-singularity pull https://depot.galaxyproject.org/singularity/spades%3A4.2.0--haf24da9_0
-# QUAST
-singularity pull https://depot.galaxyproject.org/singularity/quast:5.3.0--py39pl5321heaaa4ec_0
-# NCBI BLAST+
-singularity pull https://depot.galaxyproject.org/singularity/blast%3A2.17.0--h66d330f_0
-# Samtools
-singularity pull https://depot.galaxyproject.org/singularity/samtools%3A1.22.1--h96c455f_0
-# seqkit
-singularity pull https://depot.galaxyproject.org/singularity/seqkit%3A2.10.1--he881be0_0
-# MAFFT
-singularity pull https://depot.galaxyproject.org/singularity/mafft%3A7.525--h031d066_1
-```
+Singularity is required to run the pipeline. All container images are pulled automatically by Nextflow on first use and cached in `~/.singularity/cache`. No manual setup is needed.
 
 ## Step 2: Configure `genomedenovo_nf` options  
 
@@ -88,6 +66,27 @@ Available parameters
   - `gth` — BLAST search plus **GenomeThreader** spliced alignment. GTH resolves exact exon/intron boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool gth`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA. GTH treats the nucleotide query as an EST/cDNA and will produce incorrect results if the query contains introns. Protein queries are always safe to use with GTH.
 
 - `--skip_quast`: Optional flag. When set, skips the QUAST assembly quality assessment step. Useful when running on pre-assembled scaffolds that have already been assessed, or to speed up BLAST/GTH-only runs.
+
+- `--busco_lineage`: Optional. BUSCO lineage dataset for genome completeness assessment using [BUSCO v6](https://busco.ezlab.org/). **If this parameter is not provided, BUSCO is skipped entirely.** The lineage determines which set of near-universal single-copy orthologs (OrthoDB) is used to score the assembly. Select the most specific lineage available for your organism:
+
+  | Lineage | Scope | Recommended for |
+  |---|---|---|
+  | `bacteria_odb10` | All Bacteria | Broad screening across any bacterial species |
+  | `fungi_odb10` | All Fungi | Broad screening across any fungal species |
+  | `ascomycota_odb10` | Ascomycota | Most plant pathogens, model yeasts |
+  | `dothideomycetes_odb10` | Dothideomycetes | *Zymoseptoria*, *Alternaria*, *Cladosporium*, etc. |
+
+  A full list of available lineages can be found at [https://busco-data.ezlab.org/v5/data/lineages/](https://busco-data.ezlab.org/v5/data/lineages/).
+
+  Example:
+  ```bash
+  --busco_lineage dothideomycetes_odb10
+  ```
+
+- `--busco_db_path`: Optional. Path to a directory containing pre-downloaded BUSCO lineage databases. When provided, BUSCO runs in offline mode and will not attempt to download any data. If omitted, BUSCO automatically downloads the requested lineage on first use and caches it in `~/.busco_db`. Pre-download a lineage with:
+  ```bash
+  busco --download dothideomycetes_odb10 --download_path /path/to/busco_db
+  ```
 
 - `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `500`.
   - Example: `--padding 100` extracts hit region plus 100 bp upstream and 100 bp downstream

@@ -4,7 +4,7 @@ process QUAST {
     errorStrategy 'ignore'
     memory '4GB'
     cpus 1
-    publishDir "${params.outdir}/quast", mode: 'copy', pattern: "${sample_id}_quast"
+    publishDir "${params.outdir}/quast", mode: 'copy', pattern: "*_quast"
     
     input:
     tuple val(sample_id), path(scaffolds_fasta)

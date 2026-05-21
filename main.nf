@@ -10,11 +10,14 @@ params.padding = 500  // Number of bp to extend BLAST hit sequences on both side
 params.SRR_sample_map = ""  // Optional: CSV file (no header) mapping original sample IDs to new names
 params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'gth' (GenomeThreader)
 params.skip_quast = false      // Set to true to skip QUAST assembly QC
+params.busco_lineage = ""      // BUSCO lineage (e.g. dothideomycetes_odb10). If empty, BUSCO is skipped.
+params.busco_db_path = ""      // Optional: path to pre-downloaded BUSCO databases (enables offline mode)
 
 
 include { denovo_query } from './workflows/denovo_query.nf'
 
-log.info """
+workflow {
+   log.info """
 
    ==========================================
    ||    GENOME DENOVO & QUERY WORKFLOW.   ||
@@ -23,7 +26,7 @@ log.info """
     Steps:
      1. SRA resolve & download (optional)
      2. De novo assembly (SPAdes)
-     3. Assembly QC (QUAST)
+     3. Assembly QC (QUAST + BUSCO if --busco_lineage is set)
      4. Sequence search: BLAST (always) + GenomeThreader CDS/protein (--search_tool gth)
      5. Hit extraction & per-query FASTA
      6. Multiple sequence alignment (MAFFT)
@@ -38,9 +41,8 @@ log.info """
      search tool    : ${params.search_tool}
      padding        : ${params.padding} bp
      sample map     : ${params.SRR_sample_map ?: 'none'}
+     busco lineage  : ${params.busco_lineage ?: 'skipped'}
     """
 
-
-workflow {
    denovo_query()
 }

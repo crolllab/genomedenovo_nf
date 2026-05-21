@@ -1,5 +1,3 @@
-nextflow.enable.dsl=2
-
 // ---------------------
 // Module includes
 // ---------------------
@@ -8,6 +6,7 @@ include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
 include { trimSequencesPE; trimSequencesSE } from '../modules/fastp_trimming'
 include { SPAdes; SPAdesSE } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
+include { BUSCO; SummarizeBuscoMetrics } from '../modules/busco_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { GTHsearch; ExtractGTHCds; CombineGTHHits } from '../modules/gth_search'
@@ -50,12 +49,11 @@ workflow denovo_query {
                 def isNucl = (nucCount * 100 / seq.size()) >= 95
                 if (isNucl) {
                     def stopCodons = ['TAA', 'TAG', 'TGA'] as Set
-                    def hasStop = false
                     // Only check frame 0: a CDS must start at position 0.
                     // Checking other frames would produce false positives on any valid CDS.
-                    for (int i = 0; i <= seq.size() - 3 && !hasStop; i += 3) {
-                        // ignore stop codon at the terminal position
-                        if (stopCodons.contains(seq.substring(i, i + 3)) && (i + 3) < seq.size()) hasStop = true
+                    // Exclude the terminal codon (position seq.size()-3 onward)
+                    def hasStop = (0..<(seq.size() - 3)).step(3).any { i ->
+                        stopCodons.contains(seq.substring(i, i + 3))
                     }
                     if (hasStop) {
                         exit 1, """ERROR: --search_tool gth requires a CDS or protein query, but the nucleotide query contains stop codons in at least one reading frame.
@@ -75,7 +73,7 @@ workflow denovo_query {
     // ---------------------
     if (params.SRA_index) {
         // Input SRA index file
-        sra_file_ch = Channel.fromPath(params.SRA_index)
+        sra_file_ch = channel.fromPath(params.SRA_index)
         
         // First run SRAresolve to get URLs
         SRAresolve(sra_file_ch)
@@ -104,7 +102,7 @@ workflow denovo_query {
         if (params.reads) {
             // Support comma-separated list of glob patterns
             def reads_patterns = params.reads.tokenize(';').collect { it.trim() }
-            read_pairs_local_ch = Channel.fromFilePairs(
+            read_pairs_local_ch = channel.fromFilePairs(
                 reads_patterns,
                 checkIfExists: true,
                 flat: false,
@@ -116,15 +114,11 @@ workflow denovo_query {
                 def name2 = reads_list[1].name.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
 
                 // Find longest common prefix (this is the true sample ID)
-                def commonPrefix = ""
                 def minLen = Math.min(name1.length(), name2.length())
-                for (int i = 0; i < minLen; i++) {
-                    if (name1[i] == name2[i]) {
-                        commonPrefix += name1[i]
-                    } else {
-                        break
-                    }
-                }
+                def commonPrefix = (0..<minLen)
+                    .takeWhile { i -> name1[i] == name2[i] }
+                    .collect { i -> name1[i] }
+                    .join('')
 
                 // Remove trailing separators (_, ., -)
                 commonPrefix = commonPrefix.replaceAll(/[._-]+$/, '')
@@ -132,7 +126,7 @@ workflow denovo_query {
                 return [commonPrefix, reads_list[0], reads_list[1], 'local']
             }
         } else {
-            local_pe_formatted = Channel.empty()
+            local_pe_formatted = channel.empty()
         }
 
         // Handle SRA paired-end reads
@@ -146,8 +140,8 @@ workflow denovo_query {
                 [sample_id, read, 'SRA']
             }
         } else {
-            sra_pe_formatted = Channel.empty()
-            sra_se_formatted = Channel.empty()
+            sra_pe_formatted = channel.empty()
+            sra_se_formatted = channel.empty()
         }
 
         // Combine PE reads from different sources
@@ -174,7 +168,7 @@ workflow denovo_query {
         // Combine scaffolds from both PE and SE assemblies
         spades_scaffolds = SPAdes.out.scaffolds.mix(SPAdesSE.out.scaffolds)
     } else {
-        spades_scaffolds = Channel.empty()
+        spades_scaffolds = channel.empty()
     }
 
     // ---------------------
@@ -184,12 +178,12 @@ workflow denovo_query {
         // Support comma-separated list of paths/globs (or a single entry)
         def scaffold_entries = params.scaffolds.tokenize(';').collect { it.trim() }
 
-        local_scaffolds_ch = scaffold_entries.inject(Channel.empty()) { acc, scaffolds_path ->
+        local_scaffolds_ch = scaffold_entries.inject(channel.empty()) { acc, scaffolds_path ->
             def path_ch
             // Check if it's a glob pattern
             if (scaffolds_path.contains('**') || scaffolds_path.contains('*')) {
                 // It's a glob pattern - use directly
-                path_ch = Channel
+                path_ch = channel
                     .fromPath(scaffolds_path, checkIfExists: true)
                     .map { f ->
                         def base = f.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
@@ -201,7 +195,7 @@ workflow denovo_query {
             } else if (file(scaffolds_path).exists() && file(scaffolds_path).isDirectory()) {
                 // Pattern to find scaffolds.fasta in subdirectories: parent_dir/*/scaffolds.fasta
                 def scaffolds_pattern = "${scaffolds_path}/*/scaffolds.{fasta,fa,fna}"
-                path_ch = Channel
+                path_ch = channel
                     .fromPath(scaffolds_pattern, checkIfExists: true)
                     .map { f ->
                         // Use the parent directory name as sample_id
@@ -210,7 +204,7 @@ workflow denovo_query {
                     }
             } else {
                 // If it's a file pattern or specific file(s)
-                path_ch = Channel
+                path_ch = channel
                     .fromPath(scaffolds_path, checkIfExists: true)
                     .map { f ->
                         def sample_id = f.baseName.replaceAll(/\.(fasta|fa|fna)$/, "")
@@ -220,7 +214,7 @@ workflow denovo_query {
             acc.mix(path_ch)
         }
     } else {
-        local_scaffolds_ch = Channel.empty()
+        local_scaffolds_ch = channel.empty()
     }
 
     // ---------------------
@@ -237,7 +231,7 @@ workflow denovo_query {
         if (params.scaffolds) {
             all_scaffolds_ch = local_scaffolds_ch
         } else {
-            all_scaffolds_ch = Channel.empty()
+            all_scaffolds_ch = channel.empty()
         }
     }
 
@@ -265,7 +259,15 @@ workflow denovo_query {
         SummarizeAssemblyMetrics(quast_metrics)
         assembly_qc_done = SummarizeAssemblyMetrics.out
     } else {
-        assembly_qc_done = Channel.value([])
+        assembly_qc_done = channel.value([])
+    }
+
+    // ---------------------
+    // BUSCO completeness (optional — only runs when --busco_lineage is set)
+    // ---------------------
+    if (params.busco_lineage) {
+        BUSCO(all_scaffolds_ch)
+        SummarizeBuscoMetrics(BUSCO.out.summary.collect())
     }
 
     // ---------------------

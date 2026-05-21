@@ -4,7 +4,7 @@ process ExtractBlastHits {
     errorStrategy 'ignore'
     memory '2GB'
     cpus 1
-    publishDir "${params.outdir}/blast_hits/${query_id}/hit_sequences", mode: 'copy'
+    publishDir { "${params.outdir}/blast_hits/${query_id}/hit_sequences" }, mode: 'copy'
     
     input:
     tuple val(query_id), val(sample_id), path(blast_results), path(scaffolds_fasta)
@@ -226,7 +226,7 @@ process ExtractBlastHits {
 // Process to combine all extracted hit sequences for a specific query
 process CombineBlastHits {
     tag "Combining BLAST hits"
-    publishDir "${params.outdir}/blast_hits/${query_id}", mode: 'copy'
+    publishDir { "${params.outdir}/blast_hits/${query_id}" }, mode: 'copy'
     
     input:
     tuple val(query_id), path(query_fasta), path(hit_sequences), path(hit_info_files)
