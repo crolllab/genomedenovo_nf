@@ -61,6 +61,7 @@ nextflow run main.nf \
     --blast_query example/lacZ_WP_000177906.fasta \
     --busco_lineage bacteria_odb10 \
     --outdir example/output
+    --
 ```
 
 **Option 2 — local FASTQ files + 3 additional SRA downloads (6 samples total):**
@@ -70,5 +71,15 @@ nextflow run main.nf \
     --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
     --SRA_index example/sra_accessions.txt \
     --blast_query example/lacZ_WP_000177906.fasta \
+    --outdir example/output
+```
+
+**Option 3 - local FASTQ files + GenomeThreader search for lacZ (after BLAST):**
+
+```bash
+nextflow run main.nf \
+    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --blast_query example/lacZ_WP_000177906.fasta \
+    --search_tool gth \
     --outdir example/output
 ```
