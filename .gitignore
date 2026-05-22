@@ -3,7 +3,5 @@ singularity
 nf_output
 .nextflow*
 run.sh
-*.fa
-*.fasta
 example/output*/
 work
