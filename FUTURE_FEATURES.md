@@ -10,7 +10,10 @@
 ## Planned
 
 - **Replace or improve on the Genomethreader step**
+- **Summarize isoforms**: Summarize isoform counts (CDS, AA) across the dataset.
 - **Metadata grouping**: Allow users to specify groups of samples (e.g., by population, treatment) for comparative analyses and visualizations.
+- **Group information**: Isoform counts, etc. by groups.
 - **Visualizations**: Quality stats, assembly metrics, TE landscapes, etc.
 - **Provide read mapping statistics**: provide % mapped reads, coverage at focal interval versus genomic background
 - **TE analyses**: Consider summarizing content, flipping focal contig to match query orientation, etc.
+- **Phylogenetics**: Produce trees for CDS, AA alignments query matches.
