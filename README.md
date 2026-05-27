@@ -16,9 +16,10 @@ Implemented steps:
 - `busco`: genome completeness benchmarking against near-universal single-copy orthologs (optional)
 - `ncbi-blast+`: BLAST search of user-provided query sequence(s) against assembled genomes
 - `mafft`: multiple sequence alignment of extracted BLAST hits
-- `bwa-mem2`: reference-guided read mapping for coverage assessment (optional)
-- `repeatmasker`: transposable element annotation using a user-provided consensus library (optional)
-- `iqtree2`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional)
+- `genomethreader`: spliced alignment and CDS extraction using protein or EST queries (optional, `--search_tool gth`)
+- `bwa-mem2`: reference-guided read mapping for coverage assessment (optional, `--reference_genome`)
+- `repeatmasker`: transposable element annotation using a user-provided consensus library (optional, `--repeat_library`)
+- `iqtree2`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`)
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
@@ -103,7 +104,7 @@ Available parameters
   --repeat_library /path/to/TE_library.fasta
   ```
 
-- `--phylo_tree`: Optional flag. When set, a maximum-likelihood phylogenetic tree is built from BUSCO single-copy orthologs using **IQ-tree2**. Requires `--busco_lineage` to also be set. The pipeline extracts single-copy ortholog nucleotide sequences per sample, aligns each gene across samples with MAFFT, concatenates the alignments into a supermatrix, and infers the tree with per-partition model selection (`-m MFP`), 1000 ultrafast bootstrap replicates (`-B 1000`), and automatic thread selection (`-T AUTO`). Outputs are written to `phylogeny/`.
+- `--phylo_tree`: Optional flag. When set, a maximum-likelihood phylogenetic tree is built from BUSCO single-copy orthologs using **IQ-tree2**. Requires `--busco_lineage` to also be set. The pipeline extracts single-copy ortholog nucleotide sequences per sample, aligns each gene across samples with MAFFT, concatenates the alignments into a supermatrix, and infers the tree with per-partition model selection (`-m MFP`) and 1000 ultrafast bootstrap replicates (`-B 1000`, applied only when ≥4 taxa are present). Threads are set by the active `-profile` configuration (16 by default for `slurm`/`local_highCPU`). Outputs are written to `phylogeny/`.
   ```bash
   --busco_lineage dothideomycetes_odb10 --phylo_tree
   ```
@@ -303,6 +304,12 @@ When multiple query sequences are provided, outputs are organized by query ID:
   - `{query_id}_aligned.fasta`: MAFFT alignment for all BLAST hits for this query
   - `{query_id}_alignment_log.txt`: MAFFT alignment log and statistics
 
+### BUSCO outputs (if using --busco_lineage)
+- `busco_results/`: Per-sample BUSCO result directories and summary files:
+  - `{sample_id}_busco/`: Full BUSCO result directory per sample
+  - `short_summary.*.{sample_id}_busco.txt`: BUSCO short summary per sample
+  - `busco_summary_metrics.tsv`: Combined table with completeness metrics for all samples (Complete %, Single-copy %, Duplicated %, Fragmented %, Missing %)
+
 ### BWA-mem2 mapping outputs (if using --reference_genome)
 - `bwa_mapping/`: One folder per sample containing:
   - `{sample_id}_sorted.bam`: Sorted, MAPQ≥10 filtered BAM file
@@ -337,9 +344,11 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **Reference-guided read mapping with BWA-mem2** (optional, `--reference_genome`): Trimmed reads are mapped to the provided reference genome using BWA-mem2. Alignments are filtered at MAPQ≥10, sorted, and indexed with SAMtools. Flagstat reports are generated per sample.
 
+- **Genome completeness with BUSCO** (optional, `--busco_lineage`): Each assembled genome is evaluated against a specified OrthoDB lineage database using BUSCO v6 in genome mode. Results include a per-sample completeness score and a combined `busco_summary_metrics.tsv` table. If `--phylo_tree` is also set, single-copy ortholog nucleotide sequences are additionally extracted from each sample for downstream phylogenomics.
+
 - **Transposable element annotation with RepeatMasker** (optional, `--repeat_library`): All scaffolds (assembled or user-supplied) are annotated with RepeatMasker using the provided TE consensus library. Outputs include GFF annotations, soft-masked FASTA files, and per-sample summary tables.
 
-- **BUSCO gene phylogeny with IQ-tree2** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. IQ-tree2 infers a maximum-likelihood tree with per-gene partition model selection (MFP), 1000 ultrafast bootstrap replicates, and automatic CPU selection. Requires `--busco_lineage`.
+- **BUSCO gene phylogeny with IQ-tree2** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. IQ-tree2 infers a maximum-likelihood tree with per-gene partition model selection (`-m MFP`) and 1000 ultrafast bootstrap replicates (`-B 1000`, skipped when fewer than 4 taxa are present). Threads are set by the active `-profile` configuration. Requires `--busco_lineage`.
 
 
 ## Features to consider / bug fixes
