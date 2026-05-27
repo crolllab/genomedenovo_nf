@@ -10,10 +10,15 @@ The `genomedenovo_nf` Nextflow pipeline performs de novo assembly of Illumina pa
 Implemented steps:
 - `entrez-direct`: query NCBI SRA for metadata (optional)
 - `sratools`: download SRA files (optional)
+- `fastp`: adapter trimming and read quality filtering
 - `spades`: de novo assembly of Illumina paired-end and single-end reads
 - `quast`: assembly quality assessment
+- `busco`: genome completeness benchmarking against near-universal single-copy orthologs (optional)
 - `ncbi-blast+`: BLAST search of user-provided query sequence(s) against assembled genomes
 - `mafft`: multiple sequence alignment of extracted BLAST hits
+- `bwa-mem2`: reference-guided read mapping for coverage assessment (optional)
+- `repeatmasker`: transposable element annotation using a user-provided consensus library (optional)
+- `iqtree2`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional)
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
@@ -86,6 +91,21 @@ Available parameters
 - `--busco_db_path`: Optional. Path to a directory containing pre-downloaded BUSCO lineage databases. When provided, BUSCO runs in offline mode and will not attempt to download any data. If omitted, BUSCO automatically downloads the requested lineage on first use and caches it in `~/.busco_db`. Pre-download a lineage with:
   ```bash
   busco --download dothideomycetes_odb10 --download_path /path/to/busco_db
+  ```
+
+- `--reference_genome`: Optional. Path to a reference genome FASTA file. When provided, trimmed reads are mapped to this reference using **BWA-mem2** and the resulting BAM files are sorted and indexed with SAMtools. Useful for estimating mapping rates and coverage uniformity alongside the de novo assemblies. Only available when reads are supplied via `--reads` or `--SRA_index`.
+  ```bash
+  --reference_genome /path/to/reference.fasta
+  ```
+
+- `--repeat_library`: Optional. Path to a TE consensus library FASTA file. When provided, all assembled (or supplied) scaffolds are annotated with **RepeatMasker** using this library. One GFF file per sample is produced, along with masked FASTA files and a summary table. A pre-built library can be generated with RepeatModeler or obtained from [Dfam](https://www.dfam.org).
+  ```bash
+  --repeat_library /path/to/TE_library.fasta
+  ```
+
+- `--phylo_tree`: Optional flag. When set, a maximum-likelihood phylogenetic tree is built from BUSCO single-copy orthologs using **IQ-tree2**. Requires `--busco_lineage` to also be set. The pipeline extracts single-copy ortholog nucleotide sequences per sample, aligns each gene across samples with MAFFT, concatenates the alignments into a supermatrix, and infers the tree with per-partition model selection (`-m MFP`), 1000 ultrafast bootstrap replicates (`-B 1000`), and automatic thread selection (`-T AUTO`). Outputs are written to `phylogeny/`.
+  ```bash
+  --busco_lineage dothideomycetes_odb10 --phylo_tree
   ```
 
 - `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `500`.
@@ -250,6 +270,8 @@ The pipeline will produce the following output files in the specified `--outdir`
 - `NCBI_download_urls.tsv`: Download URLs and sources (ENA vs NCBI) for each accession
 
 ### Assembly outputs
+- `assemblies/fastp_reports/fastp_summary.tsv`: Table with read quality metrics before and after trimming for all samples (columns prefixed with `before_` / `after_`)
+- `assemblies/fastp_reports/fastp_summary.txt`: Human-readable formatted version of the same metrics
 - `assembly_stats.tsv`: Table with assembly statistics for all samples
 - `assembly_summary_metrics.tsv`: Table with QUAST metrics for all samples
 - `quast_report.html`: Interactive HTML report from QUAST
@@ -281,6 +303,25 @@ When multiple query sequences are provided, outputs are organized by query ID:
   - `{query_id}_aligned.fasta`: MAFFT alignment for all BLAST hits for this query
   - `{query_id}_alignment_log.txt`: MAFFT alignment log and statistics
 
+### BWA-mem2 mapping outputs (if using --reference_genome)
+- `bwa_mapping/`: One folder per sample containing:
+  - `{sample_id}_sorted.bam`: Sorted, MAPQ≥10 filtered BAM file
+  - `{sample_id}_sorted.bam.bai`: BAM index
+  - `{sample_id}_flagstat.json`: SAMtools flagstat report with mapping statistics
+
+### RepeatMasker outputs (if using --repeat_library)
+- `repeatmasker/`: One set of files per sample:
+  - `{sample_id}_repeatmasker.gff`: TE annotations in GFF format
+  - `{sample_id}_repeatmasker.masked`: Soft-masked genome FASTA
+  - `{sample_id}_repeatmasker.tbl`: RepeatMasker summary table
+
+### BUSCO gene phylogeny outputs (if using --phylo_tree)
+- `phylogeny/`: IQ-tree output files, including:
+  - `busco_phylogeny.treefile`: Best-scoring ML tree in Newick format
+  - `busco_phylogeny.contree`: Consensus tree with bootstrap support values
+  - `busco_phylogeny.iqtree`: Full IQ-tree report (model selection, tree statistics)
+  - `busco_phylogeny.log`: IQ-tree log file
+
 
 ## Description of pipeline steps
 
@@ -293,6 +334,12 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLAST (automatically selects blastn for nucleotide queries or tblastn for protein queries). The top hits are extracted with optional flanking sequence padding. Combined FASTA files include the original query sequence first, followed by all BLAST hits, making them ready for downstream analysis like multiple sequence alignment.
 
 - **Multiple sequence alignment with MAFFT**: The extracted BLAST hit sequences from each sample are aligned using MAFFT with `--auto` and `--adjustdirection` options. This produces both per-sample alignments and a combined alignment of all sequences from all samples.
+
+- **Reference-guided read mapping with BWA-mem2** (optional, `--reference_genome`): Trimmed reads are mapped to the provided reference genome using BWA-mem2. Alignments are filtered at MAPQ≥10, sorted, and indexed with SAMtools. Flagstat reports are generated per sample.
+
+- **Transposable element annotation with RepeatMasker** (optional, `--repeat_library`): All scaffolds (assembled or user-supplied) are annotated with RepeatMasker using the provided TE consensus library. Outputs include GFF annotations, soft-masked FASTA files, and per-sample summary tables.
+
+- **BUSCO gene phylogeny with IQ-tree2** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. IQ-tree2 infers a maximum-likelihood tree with per-gene partition model selection (MFP), 1000 ultrafast bootstrap replicates, and automatic CPU selection. Requires `--busco_lineage`.
 
 
 ## Features to consider / bug fixes

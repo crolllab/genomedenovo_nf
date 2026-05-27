@@ -14,6 +14,14 @@ include { AlignMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignGTHCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
+include { SummarizeFastpStats } from '../modules/summarize_fastp'
+include { bwaIndex } from '../modules/bwa_index'
+include { bwaMap } from '../modules/bwa_mapping'
+include { samtoolsSort } from '../modules/samtools_sort'
+include { RepeatMask } from '../modules/repeatmasker'
+include { AlignBuscoGene } from '../modules/align_busco_genes'
+include { BuildSupermatrix } from '../modules/build_supermatrix'
+include { IQtreePhylogeny } from '../modules/iqtree_phylogeny'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
 // ---------------------
@@ -29,6 +37,18 @@ workflow denovo_query {
     
     if (params.blast_query && !file(params.blast_query).exists()) {
         exit 1, "ERROR: BLAST query file does not exist: ${params.blast_query}"
+    }
+
+    if (params.reference_genome && !file(params.reference_genome).exists()) {
+        exit 1, "ERROR: Reference genome file does not exist: ${params.reference_genome}"
+    }
+
+    if (params.repeat_library && !file(params.repeat_library).exists()) {
+        exit 1, "ERROR: Repeat library file does not exist: ${params.repeat_library}"
+    }
+
+    if (params.phylo_tree && !params.busco_lineage) {
+        exit 1, "ERROR: --phylo_tree requires --busco_lineage to be set."
     }
 
     // When GTH is requested with a nucleotide query, verify the query is CDS
@@ -67,6 +87,18 @@ workflow denovo_query {
             }
         }
     }
+
+    // Placeholder for fastp summary signal (only populated when reads are trimmed)
+    fastp_summary_done = channel.empty()
+
+    // Placeholder for BWA mapping signal (only populated when --reference_genome is set)
+    bwa_done = channel.empty()
+
+    // Placeholder for RepeatMasker signal (only populated when --repeat_library is set)
+    repeat_done = channel.empty()
+
+    // Placeholder for BUSCO phylogeny signal (only populated when --phylo_tree is set)
+    phylo_done = channel.empty()
 
     // ---------------------
     // SRA metadata + downloads
@@ -157,6 +189,35 @@ workflow denovo_query {
         trimSequencesSE(sra_se_formatted)
         trimmed_se_ch = trimSequencesSE.out.reads.map { sample_id, read ->
             [sample_id, read, 'trimmed']
+        }
+
+        // Collect all fastp JSON reports and generate summary statistics
+        fastp_json_ch = trimSequencesPE.out.report
+            .mix(trimSequencesSE.out.report)
+            .collect()
+        fastp_summary_script = Channel.value(file("${projectDir}/bin/summarize_fastp.R"))
+        SummarizeFastpStats(fastp_json_ch, fastp_summary_script)
+        fastp_summary_done = SummarizeFastpStats.out.tsv
+
+        // ---------------------
+        // Optional: BWA-mem2 reference mapping (triggered by --reference_genome)
+        // ---------------------
+        if (params.reference_genome) {
+            ref_ch = Channel.value(file(params.reference_genome))
+
+            // Build BWA-mem2 index once for the reference
+            (bwa_amb, bwa_ann, bwa_bwt, bwa_pac, bwa_0123) = bwaIndex(ref_ch)
+
+            // Combine PE and SE trimmed reads into a single channel.
+            // SE reads are wrapped in a list so trimmed_reads.size() works
+            // correctly (1 vs 2) inside bwaMap for the reads_cmd construction.
+            bwa_pe_ch = trimSequencesPE.out.reads
+            bwa_se_ch = trimSequencesSE.out.reads.map { id, r -> [id, [r]] }
+            bwa_reads_ch = bwa_pe_ch.mix(bwa_se_ch)
+
+            bwaMap(ref_ch, bwa_amb, bwa_ann, bwa_bwt, bwa_pac, bwa_0123, bwa_reads_ch)
+            samtoolsSort(bwaMap.out.sam)
+            bwa_done = samtoolsSort.out.bam.map { id, bam, bai -> bam }.collect()
         }
 
         // Run SPAdes assembly for paired-end
@@ -251,6 +312,15 @@ workflow denovo_query {
     }
 
     // ---------------------
+    // RepeatMasker TE annotation (optional — triggered by --repeat_library)
+    // ---------------------
+    if (params.repeat_library) {
+        repeat_lib_ch = Channel.value(file(params.repeat_library))
+        RepeatMask(all_scaffolds_ch, repeat_lib_ch)
+        repeat_done = RepeatMask.out.gff.map { id, gff -> gff }.collect()
+    }
+
+    // ---------------------
     // Quality assessment
     // ---------------------
     if (!params.skip_quast) {
@@ -268,6 +338,31 @@ workflow denovo_query {
     if (params.busco_lineage) {
         BUSCO(all_scaffolds_ch)
         SummarizeBuscoMetrics(BUSCO.out.summary.collect())
+
+        // ----- BUSCO gene phylogeny (optional — triggered by --phylo_tree) -----
+        if (params.phylo_tree) {
+            // Flatten per-sample SCO directories into [gene_id, fna_file] pairs,
+            // then group by gene_id to get one tuple per gene across all samples.
+            busco_gene_ch = BUSCO.out.single_copy_dir
+                .flatMap { sample_id, scogs_dir ->
+                    scogs_dir.listFiles()
+                        .findAll { it.name.endsWith('.fna') }
+                        .collect { f -> [f.baseName, f] }
+                }
+                .groupTuple()
+                .filter { gene_id, files -> files.size() >= 2 }
+
+            // Align each gene across samples
+            AlignBuscoGene(busco_gene_ch)
+
+            // Build supermatrix (Python step, separate container from IQ-tree)
+            concat_script_ch = Channel.value(file("${projectDir}/bin/concat_busco_alignments.py"))
+            BuildSupermatrix(AlignBuscoGene.out.alignment.collect(), concat_script_ch)
+
+            // Infer phylogeny with IQ-tree
+            IQtreePhylogeny(BuildSupermatrix.out.supermatrix, BuildSupermatrix.out.partitions)
+            phylo_done = IQtreePhylogeny.out.results.collect()
+        }
     }
 
     // ---------------------
@@ -408,16 +503,29 @@ workflow denovo_query {
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
                 .mix(gth_done)
+                .mix(fastp_summary_done)
+                .mix(bwa_done)
+                .mix(repeat_done)
+                .mix(phylo_done)
                 .collect()
 
         } else {
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
+                .mix(fastp_summary_done)
+                .mix(bwa_done)
+                .mix(repeat_done)
+                .mix(phylo_done)
                 .collect()
         }
 
     } else {
-        all_done = assembly_qc_done.collect()
+        all_done = assembly_qc_done
+            .mix(fastp_summary_done)
+            .mix(bwa_done)
+            .mix(repeat_done)
+            .mix(phylo_done)
+            .collect()
     }
 
     // ---------------------

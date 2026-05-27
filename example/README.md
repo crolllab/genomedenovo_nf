@@ -83,3 +83,35 @@ nextflow run main.nf \
     --search_tool gth \
     --outdir example/output
 ```
+
+**Option 4 - produce BUSCO gene phylogeny:**
+
+```bash
+nextflow run main.nf \
+    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --blast_query example/lacZ_WP_000177906.fasta \
+    --busco_lineage bacteria_odb10 \
+    --phylo_tree \
+    --outdir example/output
+```
+
+**Option 5 - produce mapped read files (BAM) by providing a reference genome:**
+
+```bash
+nextflow run main.nf \
+    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --blast_query example/lacZ_WP_000177906.fasta \
+    --busco_lineage bacteria_odb10 \
+    --reference_genome example/ecoli_K12_MG1655.fasta \
+    --outdir example/output
+```
+
+**Option 6 - run repeat masking with a custom repeat library:**
+
+```bash
+nextflow run main.nf \
+    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --blast_query example/lacZ_WP_000177906.fasta \
+    --repeat_library example/ecoli_IS_elements.fasta \
+    --outdir example/output
+```

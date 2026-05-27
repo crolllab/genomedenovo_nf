@@ -12,6 +12,9 @@ params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'gth
 params.skip_quast = false      // Set to true to skip QUAST assembly QC
 params.busco_lineage = ""      // BUSCO lineage (e.g. dothideomycetes_odb10). If empty, BUSCO is skipped.
 params.busco_db_path = ""      // Optional: path to pre-downloaded BUSCO databases (enables offline mode)
+params.reference_genome = ""   // Optional: reference genome FASTA for BWA-mem2 mapping (triggers bwa_mapping module)
+params.repeat_library   = ""   // Optional: TE consensus library FASTA for RepeatMasker (triggers repeatmasker module)
+params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny with IQ-tree (requires --busco_lineage)
 
 
 include { denovo_query } from './workflows/denovo_query.nf'
@@ -42,6 +45,9 @@ workflow {
      padding        : ${params.padding} bp
      sample map     : ${params.SRR_sample_map ?: 'none'}
      busco lineage  : ${params.busco_lineage ?: 'skipped'}
+     reference      : ${params.reference_genome ?: 'none (bwa mapping skipped)'}
+     repeat library : ${params.repeat_library ?: 'none (repeatmasker skipped)'}
+     phylo tree     : ${params.phylo_tree ? 'enabled (IQ-tree BUSCO gene phylogeny)' : 'skipped'}
     """
 
    denovo_query()

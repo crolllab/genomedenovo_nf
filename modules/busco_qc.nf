@@ -10,12 +10,15 @@ process BUSCO {
     output:
     tuple val(sample_id), path("${sample_id}_busco"), emit: result_dir
     path "short_summary.*.txt",                        emit: summary
+    tuple val(sample_id), path("${sample_id}_scogs"), emit: single_copy_dir
 
     script:
     def db_arg = params.busco_db_path
         ? "--offline --download_path ${params.busco_db_path}"
         : "--download_path ./busco_downloads"
     """
+    set -euo pipefail
+
     busco \\
         -m genome \\
         -i ${scaffolds} \\
@@ -25,6 +28,16 @@ process BUSCO {
         ${db_arg}
 
     cp ${sample_id}_busco/short_summary.*.txt .
+
+    # Extract single-copy BUSCO nucleotide sequences for gene phylogenomics (--phylo_tree)
+    mkdir -p ${sample_id}_scogs
+    for fna in ${sample_id}_busco/run_*/busco_sequences/single_copy_busco_sequences/*.fna; do
+        [ -f "\$fna" ] || continue
+        gene=\$(basename "\$fna" .fna)
+        # Replace FASTA header with sample_id so sequences are identifiable after grouping
+        awk -v sid="${sample_id}" '/^>/{print ">" sid; next} {print}' "\$fna" \\
+            > ${sample_id}_scogs/\${gene}.fna
+    done
     """
 }
 
