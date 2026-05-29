@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Extract CDS exon sequences from GenomeThreader GFF3 output, concatenate
-them per gene model (respecting strand), and translate to protein.
+Extract CDS exon sequences from GenomeThreader/Exonerate GFF output,
+concatenate them per gene model (respecting strand), and translate to protein.
 
 Usage:
-    python3 extract_gth_cds.py <genome.fasta> <gth.gff3> <sample_id> <query_id>
+    python3 extract_exonerate_cds.py <genome.fasta> <spliced_aligner.gff> <sample_id> <query_id>
 
 Outputs (in current directory):
-    <sample_id>_gth_cds.fasta      -- nucleotide CDS (exons concatenated)
-    <sample_id>_gth_protein.fasta  -- translated protein
-    <sample_id>_gth_summary.tsv    -- per-gene-model statistics
+    <sample_id>_exonerate_cds.fasta      -- nucleotide CDS (exons concatenated)
+    <sample_id>_exonerate_protein.fasta  -- translated protein
+    <sample_id>_exonerate_summary.tsv    -- per-gene-model statistics
 
 Strand handling:
     + strand: sort exons ascending by start, extract forward sequence, concatenate.
@@ -30,7 +30,8 @@ from collections import defaultdict
 def read_fasta(path):
     """Return {seq_id: uppercase_sequence} for all sequences in *path*.
 
-    GTH truncates sequence names at ':' when writing GFF3 seqids, so
+    Some spliced-alignment outputs use seqids without trailing coordinate suffixes,
+    so
     strip any ':start-end' coordinate suffix (added by samtools faidx or
     the extract_blast_hits step) to ensure GFF3 lookups succeed.
     """
@@ -104,42 +105,112 @@ def wrap(seq, w=60):
 
 
 # ---------------------------------------------------------------------------
+# Exonerate GFF2 → GFF3 converter
+# ---------------------------------------------------------------------------
+
+def _parse_gff2_attrs(attr_field):
+    """Parse space/semicolon-separated GFF2 attributes (key value ; key value).
+
+    Returns a plain dict.  Values are stripped of surrounding quotes.
+    """
+    attrs = {}
+    for token in attr_field.split(';'):
+        token = token.strip()
+        if not token:
+            continue
+        m = re.match(r'^(\S+)\s+"?(.*?)"?\s*$', token)
+        if m:
+            attrs[m.group(1)] = m.group(2)
+    return attrs
+
+
+def gff2_to_gff3_lines(gff_path):
+    """Convert Exonerate GFF2 output to a list of GFF3-compliant strings.
+
+    Exonerate's ``--showtargetgff`` produces GFF version 2:
+      - ``gene`` lines carry ``gene_id N ; sequence QUERY_ID ; ...``
+      - ``cds`` lines carry *no attributes at all* (8 columns)
+      - ``exon`` and ``similarity`` lines are also present but not needed
+
+    This function assigns each ``gene`` a stable GFF3 ID, then emits a
+    properly attributed ``CDS`` line for every attribute-less ``cds`` line
+    that follows it.  All other feature types are dropped.
+    """
+    gff3_lines = []
+    current_id = None
+    current_strand = None
+
+    with open(gff_path) as fh:
+        for raw in fh:
+            if raw.startswith('#') or not raw.strip():
+                continue
+            cols = raw.rstrip('\n').split('\t')
+            if len(cols) < 8:
+                continue
+            seqid, source, feat, start, end, score, strand, frame = cols[:8]
+            attr_col = cols[8] if len(cols) >= 9 else ''
+
+            if feat.lower() == 'gene':
+                gff2_attrs = _parse_gff2_attrs(attr_col)
+                gid = gff2_attrs.get('gene_id', '')
+                seq = gff2_attrs.get('sequence', '')
+                current_id = f'{seqid}_gene{gid}_{seq}' if seq else f'{seqid}_gene{gid}'
+                current_strand = strand
+                gff3_lines.append(
+                    f'{seqid}\t{source}\tgene\t{start}\t{end}\t{score}\t{strand}\t.\t'
+                    f'ID={current_id}\n'
+                )
+
+            elif feat.lower() == 'cds' and current_id is not None:
+                # cds lines may have 8 or 9 columns; strand may be '.'
+                eff_strand = strand if strand in ('+', '-') else current_strand
+                gff3_lines.append(
+                    f'{seqid}\t{source}\tCDS\t{start}\t{end}\t.\t{eff_strand}\t.\t'
+                    f'Parent={current_id}\n'
+                )
+
+    return gff3_lines
+
+
+# ---------------------------------------------------------------------------
 # GFF3 parser
 # ---------------------------------------------------------------------------
 
 def parse_gff3_cds(gff_path):
-    """
-    Return (cds_by_parent, parent_strand, parent_scaffold).
+    """Return (cds_by_parent, parent_strand, parent_scaffold).
 
     cds_by_parent : {parent_id: [(start_1based, end_1based, scaffold), ...]}
     parent_strand  : {parent_id: '+' or '-'}
     parent_scaffold: {parent_id: scaffold_name}
+
+    The input is first normalised to GFF3 via :func:`gff2_to_gff3_lines` so
+    that Exonerate GFF2 and standard GFF3 are handled uniformly.
     """
     cds_by_parent   = defaultdict(list)
     parent_strand   = {}
     parent_scaffold = {}
 
-    with open(gff_path) as fh:
-        for line in fh:
-            if line.startswith('#') or not line.strip():
-                continue
-            parts = line.strip().split('\t')
-            if len(parts) < 9:
-                continue
-            seqid, _, feat, start, end, _, strand, _, attrs = parts
-            if feat != 'CDS':
-                continue
+    for line in gff2_to_gff3_lines(gff_path):
+        if line.startswith('#') or not line.strip():
+            continue
+        parts = line.rstrip('\n').split('\t')
+        if len(parts) < 9:
+            continue
+        seqid, _, feat, start, end, _, strand, _, attrs = parts
+        if feat.upper() != 'CDS':
+            continue
 
-            parent = None
-            for item in attrs.split(';'):
-                item = item.strip()
-                if item.upper().startswith('PARENT='):
-                    parent = item.split('=', 1)[1].split(',')[0].strip()
-                    break
-            if parent:
-                cds_by_parent[parent].append((int(start), int(end), seqid))
-                parent_strand[parent]   = strand
-                parent_scaffold[parent] = seqid
+        parent = None
+        for kv in attrs.split(';'):
+            kv = kv.strip()
+            if kv.lower().startswith('parent='):
+                parent = kv.split('=', 1)[1].strip()
+                break
+
+        if parent:
+            cds_by_parent[parent].append((int(start), int(end), seqid))
+            parent_strand[parent]   = strand
+            parent_scaffold[parent] = seqid
 
     return cds_by_parent, parent_strand, parent_scaffold
 
@@ -150,7 +221,7 @@ def parse_gff3_cds(gff_path):
 
 def main():
     if len(sys.argv) != 5:
-        sys.exit(f'Usage: {sys.argv[0]} <genome.fasta> <gth.gff3> <sample_id> <query_id>')
+        sys.exit(f'Usage: {sys.argv[0]} <genome.fasta> <spliced_aligner.gff> <sample_id> <query_id>')
 
     genome_file, gff_file, sample_id, query_id_val = sys.argv[1:]
 
@@ -161,9 +232,9 @@ def main():
         sys.stderr.write(f'No CDS features found in {gff_file}\n')
         return
 
-    with (open(f'{sample_id}_gth_cds.fasta', 'w')     as cds_out,
-          open(f'{sample_id}_gth_protein.fasta', 'w')  as prot_out,
-          open(f'{sample_id}_gth_summary.tsv', 'w')    as sum_out):
+    with (open(f'{sample_id}_exonerate_cds.fasta', 'w')     as cds_out,
+          open(f'{sample_id}_exonerate_protein.fasta', 'w')  as prot_out,
+          open(f'{sample_id}_exonerate_summary.tsv', 'w')    as sum_out):
 
         sum_out.write(
             'Sample_ID\tQuery_ID\tScaffold\tStrand\t'
@@ -204,7 +275,7 @@ def main():
 
             prot = translate(full_cds)
             # Name by sample_id for the common single-model case; add a
-            # numeric suffix only when GTH reports multiple gene models.
+            # numeric suffix only when multiple gene models are reported.
             header = sample_id if n_models == 1 else f'{sample_id}_{model_idx}'
 
             cds_out.write(f'>{header}\n{wrap(full_cds)}\n')

@@ -33,7 +33,7 @@ process ExtractBlastHits {
     # For each query, find the best scaffold (highest bitscore) then merge ALL
     # hit coordinates from that scaffold into a single genomic span.
     # This ensures multi-exon genes (where each exon is a separate BLAST hit)
-    # are fully covered in the extracted region fed to GTH.
+    # are fully covered in the extracted region fed to Exonerate.
     awk -F'\t' '
     {
         # BLAST format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore

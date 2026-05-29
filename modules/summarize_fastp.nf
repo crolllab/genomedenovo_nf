@@ -2,7 +2,7 @@ process SummarizeFastpStats {
     tag "Summarizing FASTP stats"
     errorStrategy 'retry'
     maxRetries 3
-    publishDir "${params.outdir}/assemblies/fastp_reports", mode: 'copy'
+    publishDir "${params.outdir}/fastq_stats", mode: 'copy'
 
     input:
     path json_files

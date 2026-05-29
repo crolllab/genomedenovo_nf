@@ -74,13 +74,13 @@ nextflow run main.nf \
     --outdir example/output
 ```
 
-**Option 3 - local FASTQ files + GenomeThreader search for lacZ (after BLAST):**
+**Option 3 - local FASTQ files + Exonerate search for lacZ (after BLAST):**
 
 ```bash
 nextflow run main.nf \
     --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
     --blast_query example/lacZ_WP_000177906.fasta \
-    --search_tool gth \
+    --search_tool exonerate \
     --outdir example/output
 ```
 

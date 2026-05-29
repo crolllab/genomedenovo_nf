@@ -16,7 +16,7 @@ Implemented steps:
 - `busco`: genome completeness benchmarking against near-universal single-copy orthologs (optional)
 - `ncbi-blast+`: BLAST search of user-provided query sequence(s) against assembled genomes
 - `mafft`: multiple sequence alignment of extracted BLAST hits
-- `genomethreader`: spliced alignment and CDS extraction using protein or EST queries (optional, `--search_tool gth`)
+- `exonerate`: spliced alignment and CDS extraction using protein or CDS queries (optional, `--search_tool exonerate`)
 - `bwa-mem2`: reference-guided read mapping for coverage assessment (optional, `--reference_genome`)
 - `repeatmasker`: transposable element annotation using a user-provided consensus library (optional, `--repeat_library`)
 - `iqtree2`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`)
@@ -69,9 +69,9 @@ Available parameters
 
 - `--search_tool`: Optional. Choose the sequence search tool. Default: `blast`.
   - `blast` — BLAST search only (blastn for nucleotide queries, tblastn for protein queries).
-  - `gth` — BLAST search plus **GenomeThreader** spliced alignment. GTH resolves exact exon/intron boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool gth`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA. GTH treats the nucleotide query as an EST/cDNA and will produce incorrect results if the query contains introns. Protein queries are always safe to use with GTH.
+  - `exonerate` — BLAST search plus **Exonerate** spliced alignment (`protein2genome` for protein queries, `est2genome` for nucleotide queries). Exonerate resolves exon boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool exonerate`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA.
 
-- `--skip_quast`: Optional flag. When set, skips the QUAST assembly quality assessment step. Useful when running on pre-assembled scaffolds that have already been assessed, or to speed up BLAST/GTH-only runs.
+- `--skip_quast`: Optional flag. When set, skips the QUAST assembly quality assessment step. Useful when running on pre-assembled scaffolds that have already been assessed, or to speed up BLAST/Exonerate-only runs.
 
 - `--busco_lineage`: Optional. BUSCO lineage dataset for genome completeness assessment using [BUSCO v6](https://busco.ezlab.org/). **If this parameter is not provided, BUSCO is skipped entirely.** The lineage determines which set of near-universal single-copy orthologs (OrthoDB) is used to score the assembly. Select the most specific lineage available for your organism:
 
@@ -113,6 +113,11 @@ Available parameters
   - Example: `--padding 100` extracts hit region plus 100 bp upstream and 100 bp downstream
   - Useful for capturing regulatory regions, promoters, or getting more context around hits
   - Automatically ensures coordinates stay within scaffold boundaries
+
+- `--locus_coverage`: Optional flag. When set, each query sequence is BLASTed against the reference genome (`--reference_genome`) to identify the best-hit locus. Per-base read depth (mapping quality ≥ 20) is then extracted from the sorted BAM files at the padded locus using SAMtools. In parallel, genome-wide depth is summarised in 1 000 bp windows (also MQ ≥ 20) in a single streaming pass, and the mean and standard deviation of window-mean depths are reported. The output table lists locus depth first, followed by the genome-wide window statistics, enabling a direct comparison of local vs. background coverage. Requires `--blast_query`, `--reference_genome`, and read input (`--reads` or `--SRA_index`).
+  ```bash
+  --locus_coverage
+  ```
   - Padded coordinates shown in FASTA headers; original BLAST coordinates saved in TSV files
 
 - `--reads`: Optional. Provide the path to the folder containing the fastq read files. The pipeline will automatically find paired-end read files based on the naming convention. Must be bracketed by single quotes `'`. See below for examples. Note: Local file input currently supports paired-end reads only. Single-end reads are supported via `--SRA_index`.
@@ -271,8 +276,8 @@ The pipeline will produce the following output files in the specified `--outdir`
 - `NCBI_download_urls.tsv`: Download URLs and sources (ENA vs NCBI) for each accession
 
 ### Assembly outputs
-- `assemblies/fastp_reports/fastp_summary.tsv`: Table with read quality metrics before and after trimming for all samples (columns prefixed with `before_` / `after_`)
-- `assemblies/fastp_reports/fastp_summary.txt`: Human-readable formatted version of the same metrics
+- `fastq_stats/fastp_summary.tsv`: Table with read quality metrics before and after trimming for all samples (columns prefixed with `before_` / `after_`)
+- `fastq_stats/fastp_summary.txt`: Human-readable formatted version of the same metrics
 - `assembly_stats.tsv`: Table with assembly statistics for all samples
 - `assembly_summary_metrics.tsv`: Table with QUAST metrics for all samples
 - `quast_report.html`: Interactive HTML report from QUAST
@@ -304,6 +309,16 @@ When multiple query sequences are provided, outputs are organized by query ID:
   - `{query_id}_aligned.fasta`: MAFFT alignment for all BLAST hits for this query
   - `{query_id}_alignment_log.txt`: MAFFT alignment log and statistics
 
+### Exonerate outputs (if using --search_tool exonerate)
+- `exonerate_hits/{query_id}/`: Per-query folder containing spliced alignment outputs
+  - `{sample_id}_exonerate.gff3`: Raw Exonerate target GFF for each sample
+  - `{sample_id}_exonerate_cds.fasta`: Extracted CDS nucleotide sequences per sample
+  - `{sample_id}_exonerate_protein.fasta`: Extracted protein sequences per sample
+  - `{sample_id}_exonerate_summary.tsv`: Per-sample summary of exon coordinates and lengths
+  - `{query_id}_all_exonerate_cds.fasta`: Combined CDS FASTA across samples (query prepended for nucleotide queries)
+  - `{query_id}_all_exonerate_protein.fasta`: Combined protein FASTA across samples (query prepended/translated when needed)
+  - `{query_id}_all_exonerate_summary.tsv`: Combined per-query summary table
+
 ### BUSCO outputs (if using --busco_lineage)
 - `busco_results/`: Per-sample BUSCO result directories and summary files:
   - `{sample_id}_busco/`: Full BUSCO result directory per sample
@@ -315,6 +330,16 @@ When multiple query sequences are provided, outputs are organized by query ID:
   - `{sample_id}_sorted.bam`: Sorted, MAPQ≥10 filtered BAM file
   - `{sample_id}_sorted.bam.bai`: BAM index
   - `{sample_id}_flagstat.json`: SAMtools flagstat report with mapping statistics
+
+### Locus coverage outputs (if using --locus_coverage)
+- `locus_coverage/{query_id}/`: Per-query folder containing:
+  - `{query_id_safe}_ref_locus.tsv`: Best BLAST hit of the query on the reference genome (scaffold, coordinates)
+  - `{sample_id}_{query_id_safe}_locus_coverage.tsv`: Per-sample coverage table with columns:
+    - `scaffold`, `hit_start`, `hit_end`: BLAST hit coordinates on the reference
+    - `locus_start`, `locus_end`: Padded locus boundaries (±`--padding` bp)
+    - `locus_mean_depth`, `locus_median_depth`: Read depth at the padded locus (MQ ≥ 20)
+    - `genome_window_mean_depth`, `genome_window_sd_depth`: Mean and SD of 1 000 bp window depths across the whole genome (MQ ≥ 20)
+  - `{query_id_safe}_all_locus_coverage.tsv`: Combined table across all samples for this query
 
 ### RepeatMasker outputs (if using --repeat_library)
 - `repeatmasker/`: One set of files per sample:
@@ -340,9 +365,13 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLAST (automatically selects blastn for nucleotide queries or tblastn for protein queries). The top hits are extracted with optional flanking sequence padding. Combined FASTA files include the original query sequence first, followed by all BLAST hits, making them ready for downstream analysis like multiple sequence alignment.
 
+- **Exonerate spliced alignment and CDS/protein extraction** (optional, `--search_tool exonerate`): BLAST hit regions are used as anchors for Exonerate (`protein2genome` or `est2genome`) to refine exon boundaries and recover coding sequences per sample. Raw target-side GFF output is parsed into CDS nucleotide FASTA, translated protein FASTA, and per-sample/per-query summary tables.
+
 - **Multiple sequence alignment with MAFFT**: The extracted BLAST hit sequences from each sample are aligned using MAFFT with `--auto` and `--adjustdirection` options. This produces both per-sample alignments and a combined alignment of all sequences from all samples.
 
 - **Reference-guided read mapping with BWA-mem2** (optional, `--reference_genome`): Trimmed reads are mapped to the provided reference genome using BWA-mem2. Alignments are filtered at MAPQ≥10, sorted, and indexed with SAMtools. Flagstat reports are generated per sample.
+
+- **Locus coverage analysis** (optional, `--locus_coverage`): Each query sequence is BLASTed against the reference genome to find its best-hit locus. For every sorted BAM file, SAMtools `depth` (MQ ≥ 20, `-a` for zero-coverage positions) is run at the padded locus to report per-base depth, from which mean and median are derived. Genome-wide background depth is assessed by aggregating all per-base depths into non-overlapping 1 000 bp windows in a single streaming pass, and computing mean and SD across window means. The combined output tables list locus depth alongside genome-wide window statistics for each sample and query.
 
 - **Genome completeness with BUSCO** (optional, `--busco_lineage`): Each assembled genome is evaluated against a specified OrthoDB lineage database using BUSCO v6 in genome mode. Results include a per-sample completeness score and a combined `busco_summary_metrics.tsv` table. If `--phylo_tree` is also set, single-copy ortholog nucleotide sequences are additionally extracted from each sample for downstream phylogenomics.
 

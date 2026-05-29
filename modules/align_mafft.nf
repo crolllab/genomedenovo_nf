@@ -17,7 +17,7 @@ process AlignMAFFT {
     set -euo pipefail
     
     # Derive output prefix from the input filename so that multiple MAFFT
-    # invocations for the same query (BLAST hits, GTH CDS, GTH protein) each
+    # invocations for the same query (BLAST hits, Exonerate CDS, Exonerate protein) each
     # produce distinct output files and do not overwrite each other.
     file_stem="\$(basename '${sequences_fasta}' .fasta)"
     

@@ -8,13 +8,14 @@ params.blast_query = ""
 params.scaffolds = ""
 params.padding = 500  // Number of bp to extend BLAST hit sequences on both sides
 params.SRR_sample_map = ""  // Optional: CSV file (no header) mapping original sample IDs to new names
-params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'gth' (GenomeThreader)
+params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'exonerate' (spliced alignment)
 params.skip_quast = false      // Set to true to skip QUAST assembly QC
 params.busco_lineage = ""      // BUSCO lineage (e.g. dothideomycetes_odb10). If empty, BUSCO is skipped.
 params.busco_db_path = ""      // Optional: path to pre-downloaded BUSCO databases (enables offline mode)
 params.reference_genome = ""   // Optional: reference genome FASTA for BWA-mem2 mapping (triggers bwa_mapping module)
 params.repeat_library   = ""   // Optional: TE consensus library FASTA for RepeatMasker (triggers repeatmasker module)
 params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny with IQ-tree (requires --busco_lineage)
+params.locus_coverage   = false // Optional: compute read depth at query BLAST locus on reference (requires --blast_query and --reference_genome)
 
 
 include { denovo_query } from './workflows/denovo_query.nf'
@@ -30,7 +31,7 @@ workflow {
      1. SRA resolve & download (optional)
      2. De novo assembly (SPAdes)
      3. Assembly QC (QUAST + BUSCO if --busco_lineage is set)
-     4. Sequence search: BLAST (always) + GenomeThreader CDS/protein (--search_tool gth)
+    4. Sequence search: BLAST (always) + Exonerate CDS/protein (--search_tool exonerate)
      5. Hit extraction & per-query FASTA
      6. Multiple sequence alignment (MAFFT)
    

@@ -9,12 +9,13 @@ include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
 include { BUSCO; SummarizeBuscoMetrics } from '../modules/busco_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
-include { GTHsearch; ExtractGTHCds; CombineGTHHits } from '../modules/gth_search'
+include { ExonerateSearch; ExtractExonerateCds; CombineExonerateHits } from '../modules/exonerate_search'
 include { AlignMAFFT } from '../modules/align_mafft'
-include { AlignMAFFT as AlignGTHCdsMAFFT } from '../modules/align_mafft'
+include { AlignMAFFT as AlignExonerateCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
 include { SummarizeFastpStats } from '../modules/summarize_fastp'
+include { SummarizeBwaStats } from '../modules/summarize_bwa'
 include { bwaIndex } from '../modules/bwa_index'
 include { bwaMap } from '../modules/bwa_mapping'
 include { samtoolsSort } from '../modules/samtools_sort'
@@ -22,6 +23,7 @@ include { RepeatMask } from '../modules/repeatmasker'
 include { AlignBuscoGene } from '../modules/align_busco_genes'
 include { BuildSupermatrix } from '../modules/build_supermatrix'
 include { IQtreePhylogeny } from '../modules/iqtree_phylogeny'
+include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from '../modules/locus_coverage'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
 // ---------------------
@@ -51,10 +53,26 @@ workflow denovo_query {
         exit 1, "ERROR: --phylo_tree requires --busco_lineage to be set."
     }
 
-    // When GTH is requested with a nucleotide query, verify the query is CDS
-    // (no stop codons).  If stop codons are found the query is likely genomic
-    // DNA with introns, which GTH cannot handle correctly as an EST input.
-    if (params.search_tool == 'gth' && params.blast_query) {
+    if (!(params.search_tool in ['blast', 'exonerate'])) {
+        exit 1, "ERROR: Unsupported --search_tool '${params.search_tool}'. Allowed values: blast, exonerate."
+    }
+
+    if (params.locus_coverage && !params.reference_genome) {
+        exit 1, "ERROR: --locus_coverage requires --reference_genome (for BWA mapping and BLAST-based locus search)."
+    }
+
+    if (params.locus_coverage && !params.blast_query) {
+        exit 1, "ERROR: --locus_coverage requires --blast_query (the query is BLASTed against the reference to identify the locus)."
+    }
+
+    if (params.locus_coverage && !params.reads && !params.SRA_index) {
+        exit 1, "ERROR: --locus_coverage requires read input (--reads or --SRA_index) to produce BAM files for depth analysis."
+    }
+
+    // When Exonerate is requested with a nucleotide query, verify the query is CDS
+    // (no stop codons). If stop codons are found the query is likely genomic
+    // DNA with introns, which Exonerate cannot handle correctly with est2genome.
+    if (params.search_tool == 'exonerate' && params.blast_query) {
         def qfile = file(params.blast_query)
         if (qfile.exists()) {
             def buf = new StringBuilder()
@@ -76,12 +94,12 @@ workflow denovo_query {
                         stopCodons.contains(seq.substring(i, i + 3))
                     }
                     if (hasStop) {
-                        exit 1, """ERROR: --search_tool gth requires a CDS or protein query, but the nucleotide query contains stop codons in at least one reading frame.
-  This suggests the query is genomic DNA with introns, which GenomeThreader cannot use as an EST/cDNA input.
+                                                exit 1, """ERROR: --search_tool exonerate requires a CDS or protein query, but the nucleotide query contains stop codons in at least one reading frame.
+    This suggests the query is genomic DNA with introns, which Exonerate cannot use correctly with the est2genome model.
   Please provide either:
     - A mature CDS sequence (spliced, no introns, no in-frame stop codons)
     - A protein sequence (amino acid FASTA)
-  To use genomic DNA as a locus anchor, run without --search_tool gth (BLAST only)."""
+    To use genomic DNA as a locus anchor, run without --search_tool exonerate (BLAST only)."""
                     }
                 }
             }
@@ -93,6 +111,12 @@ workflow denovo_query {
 
     // Placeholder for BWA mapping signal (only populated when --reference_genome is set)
     bwa_done = channel.empty()
+
+    // Placeholder for BAM channel passed to locus coverage (set inside the BWA block)
+    bam_ch_for_locus = channel.empty()
+
+    // Placeholder for locus coverage signal (only populated when --locus_coverage is set)
+    locus_cov_done = channel.empty()
 
     // Placeholder for RepeatMasker signal (only populated when --repeat_library is set)
     repeat_done = channel.empty()
@@ -217,7 +241,12 @@ workflow denovo_query {
 
             bwaMap(ref_ch, bwa_amb, bwa_ann, bwa_bwt, bwa_pac, bwa_0123, bwa_reads_ch)
             samtoolsSort(bwaMap.out.sam)
+            bam_ch_for_locus = samtoolsSort.out.bam
             bwa_done = samtoolsSort.out.bam.map { id, bam, bai -> bam }.collect()
+
+            bwa_flagstat_ch = samtoolsSort.out.report.collect()
+            bwa_summary_script = Channel.value(file("${projectDir}/bin/summarize_bwa.R"))
+            SummarizeBwaStats(bwa_flagstat_ch, bwa_summary_script)
         }
 
         // Run SPAdes assembly for paired-end
@@ -388,7 +417,7 @@ workflow denovo_query {
                 [query_id, query_file, seq_type]
             }
 
-        // [query_id, query_file] — used by both BLAST and GTH paths
+        // [query_id, query_file] — used by both BLAST and Exonerate paths
         individual_queries = queries_with_type
             .map { query_id, query_file, seq_type -> [query_id, query_file] }
 
@@ -452,70 +481,125 @@ workflow denovo_query {
         AlignMAFFT(CombineBlastHits.out.combined_sequences)
 
         // ------------------------------------------------------------------
-        // GenomeThreader path  (--search_tool gth)
+        // Exonerate path  (--search_tool exonerate)
         // Runs on BLAST-extracted regions (not the full assembly) for speed.
         // Performs protein-to-genome or cDNA-to-genome spliced alignment to
         // resolve exact exon boundaries. Outputs nucleotide CDS and protein.
         // ------------------------------------------------------------------
-        if (params.search_tool == 'gth') {
+        if (params.search_tool == 'exonerate') {
 
-            // Build GTH input from BLAST-extracted hit FASTAs (not full scaffolds):
+            // Build Exonerate input from BLAST-extracted hit FASTAs (not full scaffolds):
             // [sample_id, hit_fasta, query_id, query_fasta, seq_type]
-            gth_input = ExtractBlastHits.out.sequences
+            exonerate_input = ExtractBlastHits.out.sequences
                 .combine(queries_with_type, by: 0)
                 .map { query_id, sample_id, hit_fasta, query_fasta, seq_type ->
                     [sample_id, hit_fasta, query_id, query_fasta, seq_type]
                 }
 
-            GTHsearch(gth_input)
+            ExonerateSearch(exonerate_input)
 
             // Extract CDS + protein from the raw GFF3 using python3 (spades container)
-            ExtractGTHCds(GTHsearch.out.gff3)
+            ExtractExonerateCds(ExonerateSearch.out.gff3)
 
             // Group per-sample outputs by query_id
-            gth_cds_by_query = ExtractGTHCds.out.cds_sequences
+            exonerate_cds_by_query = ExtractExonerateCds.out.cds_sequences
                 .map { query_id, sample_id, cds_fasta -> [query_id, cds_fasta] }
                 .groupTuple()
 
-            gth_prot_by_query = ExtractGTHCds.out.protein_sequences
+            exonerate_prot_by_query = ExtractExonerateCds.out.protein_sequences
                 .map { query_id, sample_id, prot_fasta -> [query_id, prot_fasta] }
                 .groupTuple()
 
-            gth_summary_by_query = ExtractGTHCds.out.summary
+            exonerate_summary_by_query = ExtractExonerateCds.out.summary
                 .groupTuple()
 
             // Join query file + all per-sample outputs for each query_id
-            gth_combined_input = individual_queries
-                .join(gth_cds_by_query)
-                .join(gth_prot_by_query)
-                .join(gth_summary_by_query)
+            exonerate_combined_input = individual_queries
+                .join(exonerate_cds_by_query)
+                .join(exonerate_prot_by_query)
+                .join(exonerate_summary_by_query)
 
-            CombineGTHHits(gth_combined_input)
+            CombineExonerateHits(exonerate_combined_input)
 
             // Align nucleotide CDS sequences across samples
-            AlignGTHCdsMAFFT(CombineGTHHits.out.combined_cds)
+            AlignExonerateCdsMAFFT(CombineExonerateHits.out.combined_cds)
 
             // Align protein sequences across samples
-            AlignProteinMAFFT(CombineGTHHits.out.combined_protein)
+            AlignProteinMAFFT(CombineExonerateHits.out.combined_protein)
 
-            gth_done = CombineGTHHits.out.combined_cds
+            exonerate_done = CombineExonerateHits.out.combined_cds
                 .map { query_id, fasta -> fasta }
+
+            // ------------------------------------------------------------------
+            // Locus coverage (--locus_coverage)
+            // ------------------------------------------------------------------
+            if (params.locus_coverage) {
+                blast_locus_input = queries_with_type
+                    .map { query_id, query_fasta, seq_type ->
+                        [query_id, query_fasta, seq_type, file(params.reference_genome)]
+                    }
+                BlastLocusOnReference(blast_locus_input)
+
+                locus_cov_input = bam_ch_for_locus
+                    .combine(BlastLocusOnReference.out.locus)
+                    .map { sample_id, bam, bai, query_id, locus_tsv ->
+                        [query_id, sample_id, bam, bai, locus_tsv]
+                    }
+                ComputeLocusCoverage(locus_cov_input)
+
+                cov_by_query = ComputeLocusCoverage.out.coverage
+                    .map { query_id, sample_id, tsv -> [query_id, tsv] }
+                    .groupTuple()
+                MergeLocusCoverage(cov_by_query)
+
+                locus_cov_done = MergeLocusCoverage.out.merged
+                    .map { query_id, f -> f }.collect()
+            }
+
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
-                .mix(gth_done)
+                .mix(exonerate_done)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)
                 .mix(phylo_done)
+                .mix(locus_cov_done)
                 .collect()
 
         } else {
+            // ------------------------------------------------------------------
+            // Locus coverage (--locus_coverage)
+            // ------------------------------------------------------------------
+            if (params.locus_coverage) {
+                blast_locus_input = queries_with_type
+                    .map { query_id, query_fasta, seq_type ->
+                        [query_id, query_fasta, seq_type, file(params.reference_genome)]
+                    }
+                BlastLocusOnReference(blast_locus_input)
+
+                locus_cov_input = bam_ch_for_locus
+                    .combine(BlastLocusOnReference.out.locus)
+                    .map { sample_id, bam, bai, query_id, locus_tsv ->
+                        [query_id, sample_id, bam, bai, locus_tsv]
+                    }
+                ComputeLocusCoverage(locus_cov_input)
+
+                cov_by_query = ComputeLocusCoverage.out.coverage
+                    .map { query_id, sample_id, tsv -> [query_id, tsv] }
+                    .groupTuple()
+                MergeLocusCoverage(cov_by_query)
+
+                locus_cov_done = MergeLocusCoverage.out.merged
+                    .map { query_id, f -> f }.collect()
+            }
+
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)
                 .mix(phylo_done)
+                .mix(locus_cov_done)
                 .collect()
         }
 
@@ -525,6 +609,7 @@ workflow denovo_query {
             .mix(bwa_done)
             .mix(repeat_done)
             .mix(phylo_done)
+            .mix(locus_cov_done)
             .collect()
     }
 
