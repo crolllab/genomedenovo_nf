@@ -19,7 +19,7 @@ Implemented steps:
 - `exonerate`: spliced alignment and CDS extraction using protein or CDS queries (optional, `--search_tool exonerate`)
 - `bwa-mem2`: reference-guided read mapping for coverage assessment (optional, `--reference_genome`)
 - `repeatmasker`: transposable element annotation using a user-provided consensus library (optional, `--repeat_library`)
-- `iqtree2`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`)
+- `iqtree3`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`)
 
 ## Step 1: Repository, singularity containers and nextflow environment
 
@@ -167,106 +167,50 @@ Available parameters
   SRR1234567,MyIsolate_A
   ```
 
-## Step 3: Run `genomedenovo_nf` - example options
+## Step 3: Run `genomedenovo_nf`
 
-The below example is based on the _Zymoseptoria tritici_ Illumina paired-end reads from local file servers and NCBI SRA. Substitute NCBI accessions and local read paths with your own data.
+For a fully worked example using *E. coli* LTEE data, see [example/README.md](example/README.md). It covers all major input modes (local FASTQ, SRA accessions, Exonerate, BUSCO phylogeny, reference mapping, locus coverage) with ready-to-run commands.
 
-### Select sets of local fastq file pairs
-
-The following examples show different ways to select paired-end fastq files. The `--reads` option must be bracketed by single quotes `'`. Multiple glob patterns can be combined with a semicolon-separated list. The examples assume that the read files are named according to the Illumina convention, i.e. ending with `_1.fq.gz` and `_2.fq.gz` or `_R1.fq.gz` and `_R2.fq.gz`. Adjust the patterns according to your own naming conventions.
+A minimal run using local FASTQ files:
 
 ```bash
-# Option 1 - select all fastq files ending with _1.fq.gz and _2.fq.gz
---reads '/path/to/reads/*{1,2}.fq.gz'
-
-# Option 2 - select all fastq files ending with _1.fq.gz and _2.fq.gz, including all subdirectories (** instead of *)!
---reads '/path/to/reads/**{1,2}.fq.gz'
-
-# Option 3 - select all files ending with _1.fq.gz and _2.fq.gz OR ending with _R1.fq.gz and _R2.fq.gz
---reads '/path/to/reads/*_{,R}{1,2}.fq.gz'
-
-# Option 4 - select all files (including all subdirectories), with optional variation in fq/fastq, 1/R1 (2/R2), optional _001 or _001_ additions
---reads '/path/to/reads/**_{,R}{1,2}{,_001,_001_*}.{fq,fastq}.gz'
-````
-
-```bash
-# Option 4 will include these files among others:
-ST01IR_A48b.cleanData_1.fq.gz and ST01IR_A48b.cleanData_2.fq.gz
-ST01IR_A26b.cleanData_R1.fq.gz and ST01IR_A26b.cleanData_R2.fq.gz
-ST01IR_A26b.cleanData_R1.fastq.gz and ST01IR_A26b.cleanData_R2.fastq.gz
-ST01IR_A26b.cleanData_R1_001.fastq.gz and ST01IR_A26b.cleanData_R2_001.fastq.gz
-J9_L2_R1_001_18ku2CAeFgfk.fastq.gz and J9_L2_R2_001_j2kKKZcCX6h0.fastq.gz
-```
-
-### Define NCBI SRA accessions
-
-Example file to provide for the `--SRA_index ...` option. 
-
-```bash
-ERR13824484
-ERR13824571
-ERR13824499
-```
-
-Save the text file e.g. as `SRA_accessions.txt`. The repository includes an example file.
-
-
-## Step 4: `genomedenovo_nf` run example
-
-```bash
-# read selection example 1 (small set) - selects 9 paired-end reads from LEGserv
-READS='/legserv/NGS_data/Zymoseptoria/Illumina_DNAseq/Croll_2013/ST99CH_*_{1,2}.fq.gz'
-# read selection example 2 (very large set) - selects nearly all available paired-end DNA-seq datasets on LEGserv
-READS='/legserv/NGS_data/Zymoseptoria/Illumina_DNAseq/*_{,R}{1,2}{,_001,_001_*}.{fq,fastq}.gz'
-```
-
-Start the pipeline using `slurm` and processing local fastq files and NCBI accessions. Temporary files are written to `/scratch` and the output will be in the `my_nf_run_output` folder. The `SRA_accessions.txt` example file is included in the repository.
-
-```bash
-# substitute with your own NCBI API key!
-NCBI_API_KEY=abcdef1234567890
-# activate conda environment
 micromamba activate nf_gp_env
-# run nextflow pipeline
+nextflow run main.nf \
+  --reads '/path/to/reads/*_{1,2}.fq.gz' \
+  --blast_query './query.fa' \
+  --outdir './nf_output'
+```
+
+For SLURM clusters with SRA downloads:
+
+```bash
+NCBI_API_KEY=abcdef1234567890   # substitute your own key
+micromamba activate nf_gp_env
 nextflow run main.nf -config nextflow.config -profile slurm \
   -work-dir '/scratch/nf_tmp' --outdir './my_nf_run_output' \
   --NCBI_API_key $NCBI_API_KEY \
-  --reads $READS \
+  --reads '/path/to/reads/*_{1,2}.fq.gz' \
   --SRA_index './SRA_accessions.txt' \
-  --blast_query './query.fa' \
+  --blast_query './query.fa'
 ```
 
-### Example: Multi-sample BLAST analysis on pre-assembled genomes
+### Multi-sample BLAST analysis on pre-assembled genomes
 
 Process multiple pre-assembled genomes and extract BLAST hits:
 
 ```bash
-# Directory containing multiple sample folders, each with scaffolds.fasta
-ASSEMBLIES='/path/to/assemblies'
-QUERY='./wagA_gene.fa'
-
-micromamba activate nf_gp_env
-
 nextflow run main.nf -config nextflow.config \
   -profile local_highCPU \
-  -work-dir '/scratch/nf_tmp' \
   --outdir './blast_output' \
-  --scaffolds $ASSEMBLIES \
-  --blast_query $QUERY
+  --scaffolds '/path/to/assemblies' \
+  --blast_query './query.fa'
 ```
 
-This will:
-1. Process all `scaffolds.fasta` files found in subdirectories of `$ASSEMBLIES`
-2. Run BLAST search for each sample
-3. Extract hit sequences from each sample
-4. Combine all hits into `all_blast_hits.fasta` and `all_blast_hits_summary.tsv`
+Notes:
+- Enter a `tmux` or `screen` session before running — the session must remain active for the duration of the pipeline
+- In `local` and `local_highCPU` modes the pipeline runs on the local machine; use `-profile slurm` to distribute across cluster nodes
 
-Notes on the execution:
-- Before executing the `nextflow` command, enter e.g. a `tmux` or `screen` session. The session needs to remain active until the end of the pipeline (even if you specify the `slurm` option)
-- In `local` and `local_highCPU` modes, the pipeline will run on the local machine. Use the `slurm` option to spread the load to all available nodes (requires SLURM).
-
-
-## Step 5: Pipeline output
+## Step 4: Pipeline output
 
 The pipeline will produce the following output files in the specified `--outdir`:
 
@@ -338,7 +282,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
     - `scaffold`, `hit_start`, `hit_end`: BLAST hit coordinates on the reference
     - `locus_start`, `locus_end`: Padded locus boundaries (±`--padding` bp)
     - `locus_mean_depth`, `locus_median_depth`: Read depth at the padded locus (MQ ≥ 20)
-    - `genome_window_mean_depth`, `genome_window_sd_depth`: Mean and SD of 1 000 bp window depths across the whole genome (MQ ≥ 20)
+    - `genome_mean_depth`, `genome_sd_depth`: Mean and SD of per-base read depth across the whole genome (MQ ≥ 20)
   - `{query_id_safe}_all_locus_coverage.tsv`: Combined table across all samples for this query
 
 ### RepeatMasker outputs (if using --repeat_library)
@@ -371,7 +315,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **Reference-guided read mapping with BWA-mem2** (optional, `--reference_genome`): Trimmed reads are mapped to the provided reference genome using BWA-mem2. Alignments are filtered at MAPQ≥10, sorted, and indexed with SAMtools. Flagstat reports are generated per sample.
 
-- **Locus coverage analysis** (optional, `--locus_coverage`): Each query sequence is BLASTed against the reference genome to find its best-hit locus. For every sorted BAM file, SAMtools `depth` (MQ ≥ 20, `-a` for zero-coverage positions) is run at the padded locus to report per-base depth, from which mean and median are derived. Genome-wide background depth is assessed by aggregating all per-base depths into non-overlapping 1 000 bp windows in a single streaming pass, and computing mean and SD across window means. The combined output tables list locus depth alongside genome-wide window statistics for each sample and query.
+- **Locus coverage analysis** (optional, `--locus_coverage`): Each query sequence is BLASTed against the reference genome to find its best-hit locus. For every sorted BAM file, SAMtools `depth` (MQ ≥ 20, `-a` for zero-coverage positions) is run at the padded locus to report mean and median per-base depth. Genome-wide background depth is assessed by computing the mean and SD of per-base depth across all positions in a single streaming pass (using Welford's computational variance formula). The combined output tables list locus depth alongside genome-wide per-bp depth statistics for each sample and query.
 
 - **Genome completeness with BUSCO** (optional, `--busco_lineage`): Each assembled genome is evaluated against a specified OrthoDB lineage database using BUSCO v6 in genome mode. Results include a per-sample completeness score and a combined `busco_summary_metrics.tsv` table. If `--phylo_tree` is also set, single-copy ortholog nucleotide sequences are additionally extracted from each sample for downstream phylogenomics.
 

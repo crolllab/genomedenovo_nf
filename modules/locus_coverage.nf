@@ -79,7 +79,7 @@ process ComputeLocusCoverage {
     # Write header unconditionally
     printf 'sample_id\\tquery_id\\tscaffold\\thit_start\\thit_end\\t' > "\$OUT"
     printf 'locus_start\\tlocus_end\\tlocus_mean_depth\\tlocus_median_depth\\t' >> "\$OUT"
-    printf 'genome_window_mean_depth\\tgenome_window_sd_depth\\n'      >> "\$OUT"
+    printf 'genome_mean_depth\tgenome_sd_depth\n'      >> "\$OUT"
 
     # No BLAST hit for this query on the reference — write NA row and exit
     if [ -z "\$CHROM" ]; then
@@ -121,27 +121,13 @@ process ComputeLocusCoverage {
             else printf "%.1f", (a[n/2] + a[n/2+1]) / 2
         }')
 
-    # ── Genome-wide depth in 1 000 bp windows (MQ >= 20) ─────────────────────
-    # Single streaming pass: accumulate per-base depth into 1 000 bp bins,
-    # flush each bin mean into running sum/sum-of-squares for final mean/SD.
+    # ── Genome-wide per-bp depth (MQ >= 20): mean and SD via single streaming pass ──
     samtools depth -q 20 -a ${bam} | awk '
-    BEGIN { prev_c=""; ws=1; s=0; n=0; sw=0; sw2=0; nw=0 }
-    {
-        c = \$1; p = \$2; d = \$3
-        if (c != prev_c) {
-            if (n > 0) { w = s/n; sw += w; sw2 += w*w; nw++ }
-            prev_c = c; ws = 1; s = 0; n = 0
-        }
-        if (p >= ws + 1000) {
-            if (n > 0) { w = s/n; sw += w; sw2 += w*w; nw++ }
-            ws = int((p-1)/1000)*1000 + 1; s = 0; n = 0
-        }
-        s += d; n++
-    }
+    BEGIN { s=0; s2=0; n=0 }
+    { d = \$3; s += d; s2 += d*d; n++ }
     END {
-        if (n > 0) { w = s/n; sw += w; sw2 += w*w; nw++ }
-        if (nw > 0) { mn = sw/nw } else { mn = 0 }
-        if (nw > 1) { sd = sqrt((sw2 - nw*mn*mn) / (nw-1)) } else { sd = 0 }
+        if (n > 0) { mn = s/n } else { mn = 0 }
+        if (n > 1) { sd = sqrt((s2 - n*mn*mn) / (n-1)) } else { sd = 0 }
         printf "%.2f\\t%.2f\\n", mn, sd
     }' > genome_window_stats.txt
 

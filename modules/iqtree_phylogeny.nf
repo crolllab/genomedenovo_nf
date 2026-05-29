@@ -1,4 +1,4 @@
-// Build a maximum-likelihood phylogeny from a BUSCO supermatrix with IQ-tree2.
+// Build a maximum-likelihood phylogeny from a BUSCO supermatrix with IQ-tree3.
 // Input: supermatrix FASTA and NEXUS partition file from BuildSupermatrix.
 // Output: IQ-tree result files including the treefile.
 process IQtreePhylogeny {
@@ -26,7 +26,7 @@ process IQtreePhylogeny {
         BOOT_ARG=""
     fi
 
-    iqtree2 \\
+    iqtree3 \\
         -s ${supermatrix} \\
         -p ${partitions} \\
         -m MFP \\

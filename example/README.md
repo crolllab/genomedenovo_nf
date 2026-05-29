@@ -95,7 +95,7 @@ nextflow run main.nf \
     --outdir example/output
 ```
 
-**Option 5 - produce mapped read files (BAM) by providing a reference genome:**
+**Option 5 - produce mapped read files (BAM) by providing a reference genome, assess read coverage of query hit locus:**
 
 ```bash
 nextflow run main.nf \
@@ -103,6 +103,7 @@ nextflow run main.nf \
     --blast_query example/lacZ_WP_000177906.fasta \
     --busco_lineage bacteria_odb10 \
     --reference_genome example/ecoli_K12_MG1655.fasta \
+    --locus_coverage \
     --outdir example/output
 ```
 
