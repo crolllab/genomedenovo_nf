@@ -1,7 +1,8 @@
 // Process to extract top BLAST hit regions from assemblies
 process ExtractBlastHits {
     tag "Extract BLAST hits"
-    errorStrategy 'ignore'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     memory '2GB'
     cpus 1
     publishDir { "${params.outdir}/blast_hits/${query_id}/hit_sequences" }, mode: 'copy'

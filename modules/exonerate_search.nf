@@ -10,7 +10,8 @@
 // ---------------------------------------------------------------------------
 process ExonerateSearch {
     tag "Exonerate search in assemblies"
-    errorStrategy 'ignore'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     publishDir { "${params.outdir}/exonerate_hits/${query_id}" }, mode: 'copy', pattern: "*_exonerate.gff3"
 
     input:
@@ -48,7 +49,8 @@ process ExonerateSearch {
 // ---------------------------------------------------------------------------
 process ExtractExonerateCds {
     tag "Extract Exonerate CDS"
-    errorStrategy 'ignore'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     publishDir { "${params.outdir}/exonerate_hits/${query_id}" }, mode: 'copy'
 
     input:

@@ -16,6 +16,7 @@ params.reference_genome = ""   // Optional: reference genome FASTA for BWA-mem2 
 params.repeat_library   = ""   // Optional: TE consensus library FASTA for RepeatMasker (triggers repeatmasker module)
 params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny with IQ-tree (requires --busco_lineage)
 params.locus_coverage   = false // Optional: compute read depth at query BLAST locus on reference (requires --blast_query and --reference_genome)
+params.slurm_queue      = ""    // Required when using -profile slurm: SLURM partition name (e.g. 'long', 'normal')
 
 
 include { denovo_query } from './workflows/denovo_query.nf'
@@ -49,7 +50,19 @@ workflow {
      reference      : ${params.reference_genome ?: 'none (bwa mapping skipped)'}
      repeat library : ${params.repeat_library ?: 'none (repeatmasker skipped)'}
      phylo tree     : ${params.phylo_tree ? 'enabled (IQ-tree BUSCO gene phylogeny)' : 'skipped'}
+     SLURM queue    : ${params.slurm_queue ?: '(not set — not using SLURM)'}
     """
+
+   if (workflow.profile.tokenize(',').contains('slurm') && !params.slurm_queue) {
+       error """
+    ERROR: --slurm_queue is required when using -profile slurm.
+    Specify the SLURM partition name on your cluster, e.g.:
+        --slurm_queue long
+    The partition should allow a maximum walltime of at least 7 days for
+    large datasets. Shorter limits may still work for smaller inputs, but
+    jobs exceeding the partition limit will fail.
+    """
+   }
 
    denovo_query()
 }

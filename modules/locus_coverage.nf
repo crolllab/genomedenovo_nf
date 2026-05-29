@@ -14,7 +14,8 @@
 
 process BlastLocusOnReference {
     tag "BLAST locus on reference: ${query_id}"
-    errorStrategy 'ignore'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     publishDir { "${params.outdir}/locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
@@ -55,7 +56,8 @@ process BlastLocusOnReference {
 
 process ComputeLocusCoverage {
     tag "Locus coverage: ${sample_id} / ${query_id}"
-    errorStrategy 'ignore'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     publishDir { "${params.outdir}/locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
@@ -148,7 +150,8 @@ process ComputeLocusCoverage {
 
 process MergeLocusCoverage {
     tag "Merge locus coverage: ${query_id}"
-    errorStrategy 'ignore'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     publishDir { "${params.outdir}/locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
