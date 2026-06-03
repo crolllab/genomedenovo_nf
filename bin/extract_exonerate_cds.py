@@ -65,6 +65,41 @@ def rc(seq):
 
 
 # ---------------------------------------------------------------------------
+# Vulgar line parser — query coordinate extraction
+# ---------------------------------------------------------------------------
+
+def parse_vulgar_query_coords(path):
+    """Parse vulgar lines from exonerate output (--showvulgar yes).
+
+    Returns {target_id: (query_start_1based, query_end_1based)}.
+    When multiple alignments hit the same target, keeps the highest-scoring one.
+    Vulgar format: vulgar: query_id q_start q_end q_strand target_id t_start
+                           t_end t_strand score operations...
+    Coordinates are 0-based half-open; converted to 1-based inclusive here.
+    """
+    coords = {}
+    scores = {}
+    with open(path) as fh:
+        for line in fh:
+            if not line.startswith('vulgar:'):
+                continue
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            q_start   = int(parts[2])
+            q_end     = int(parts[3])
+            target_id = parts[5]
+            score     = int(parts[9])
+            # 0-based half-open → 1-based inclusive
+            q1 = q_start + 1
+            q2 = q_end
+            if target_id not in scores or score > scores[target_id]:
+                coords[target_id] = (q1, q2)
+                scores[target_id] = score
+    return coords
+
+
+# ---------------------------------------------------------------------------
 # Standard genetic code (NCBI table 1)
 # ---------------------------------------------------------------------------
 
@@ -227,6 +262,7 @@ def main():
 
     genome = read_fasta(genome_file)
     cds_by_parent, parent_strand, parent_scaffold = parse_gff3_cds(gff_file)
+    query_coords = parse_vulgar_query_coords(gff_file)
 
     if not cds_by_parent:
         sys.stderr.write(f'No CDS features found in {gff_file}\n')
@@ -237,15 +273,32 @@ def main():
           open(f'{sample_id}_exonerate_summary.tsv', 'w')    as sum_out):
 
         sum_out.write(
-            'Sample_ID\tQuery_ID\tScaffold\tStrand\t'
-            'Exon_Count\tCDS_Length\tProtein_Length\tExon_Coordinates\n'
+            'sample_id\tquery_id\tsubject_id\tstrand\t'
+            'query_start\tquery_end\t'
+            'subject_start\tsubject_end\t'
+            'exon_count\tcds_length\tprotein_length\texon_coordinates\n'
         )
 
         n_models = len(cds_by_parent)
 
         for model_idx, (parent_id, exons) in enumerate(sorted(cds_by_parent.items()), start=1):
-            strand   = parent_strand[parent_id]
-            scaffold = parent_scaffold[parent_id]
+            strand      = parent_strand[parent_id]
+            scaffold_raw = parent_scaffold[parent_id]
+
+            # Parse extraction offset encoded in the FASTA header by ExtractBlastHits.
+            # Header format: "<contig>:<padded_start>-<padded_end>" (1-based, samtools style).
+            # The offset lets us convert GFF window-relative coords to absolute assembly coords.
+            m_off = re.match(r'^(.+):([0-9]+)-([0-9]+)$', scaffold_raw)
+            if m_off:
+                scaffold = m_off.group(1)          # real contig name
+                offset   = int(m_off.group(2)) - 1 # 0-based offset into assembly
+            else:
+                scaffold = scaffold_raw
+                offset   = 0
+
+            # Query start/end from vulgar lines (keyed by the full scaffold_raw
+            # which matches the exonerate target ID including :start-end suffix)
+            q_start_val, q_end_val = query_coords.get(scaffold_raw, ('NA', 'NA'))
 
             if scaffold not in genome:
                 sys.stderr.write(f'WARNING: scaffold {scaffold!r} not in genome FASTA — skipping {parent_id}\n')
@@ -260,15 +313,21 @@ def main():
 
             full_cds = ''
             coords   = []
+            abs_positions = []
             for start, end, scaf in exons_sorted:
                 # GFF3: 1-based inclusive -> Python slice [start-1 : end]
-                exon_seq = genome[scaf][start - 1 : end]
+                # Use the stripped scaffold name for genome lookup (all exons share the same target)
+                exon_seq = genome[scaffold][start - 1 : end]
                 if strand == '-':
                     # RC each exon individually so concatenation gives
                     # the correct 5'->3' transcript sequence
                     exon_seq = rc(exon_seq)
                 full_cds += exon_seq
-                coords.append(f'{scaf}:{start}-{end}')
+                # Convert window-relative (1-based) coords to absolute assembly coords
+                abs_start = offset + start
+                abs_end   = offset + end
+                coords.append(f'{scaffold}:{abs_start}-{abs_end}')
+                abs_positions.extend([abs_start, abs_end])
 
             if not full_cds:
                 continue
@@ -278,10 +337,15 @@ def main():
             # numeric suffix only when multiple gene models are reported.
             header = sample_id if n_models == 1 else f'{sample_id}_{model_idx}'
 
+            contig_start = min(abs_positions) if abs_positions else 'NA'
+            contig_end   = max(abs_positions) if abs_positions else 'NA'
+
             cds_out.write(f'>{header}\n{wrap(full_cds)}\n')
             prot_out.write(f'>{header}_prot\n{wrap(prot)}\n')
             sum_out.write(
                 f'{sample_id}\t{query_id_val}\t{scaffold}\t{strand}\t'
+                f'{q_start_val}\t{q_end_val}\t'
+                f'{contig_start}\t{contig_end}\t'
                 f'{len(exons_sorted)}\t{len(full_cds)}\t{len(prot)}\t'
                 f'{";".join(coords)}\n'
             )

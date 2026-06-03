@@ -12,7 +12,7 @@ process ExonerateSearch {
     tag "Exonerate search in assemblies"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/exonerate_hits/${query_id}" }, mode: 'copy', pattern: "*_exonerate.gff3"
+    publishDir { "${params.outdir}/7_exonerate_hits/${query_id}/gff3_results" }, mode: 'copy', pattern: "*_exonerate.gff3"
 
     input:
     tuple val(sample_id), path(scaffolds_fasta), val(query_id), path(query_fasta), val(seq_type)
@@ -34,7 +34,7 @@ process ExonerateSearch {
         --query ${query_fasta} \
         --target ${scaffolds_fasta} \
         --showalignment no \
-        --showvulgar no \
+        --showvulgar yes \
         --showsugar no \
         --showquerygff no \
         --showtargetgff yes \
@@ -51,7 +51,7 @@ process ExtractExonerateCds {
     tag "Extract Exonerate CDS"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/exonerate_hits/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/7_exonerate_hits/${query_id}/hit_sequences" }, mode: 'copy'
 
     input:
     tuple val(query_id), val(sample_id), path(scaffolds_fasta), path(gff3_file)
@@ -69,7 +69,7 @@ process ExtractExonerateCds {
     # Initialise empty output files
     touch "${sample_id}_exonerate_cds.fasta"
     touch "${sample_id}_exonerate_protein.fasta"
-    printf 'Sample_ID\tQuery_ID\tScaffold\tStrand\tExon_Count\tCDS_Length\tProtein_Length\tExon_Coordinates\n' \
+    printf 'sample_id\tquery_id\tsubject_id\tstrand\tquery_start\tquery_end\tsubject_start\tsubject_end\texon_count\tcds_length\tprotein_length\texon_coordinates\n' \
         > "${sample_id}_exonerate_summary.tsv"
 
     # Exonerate can emit CDS/cds; detect case-insensitively.
@@ -91,7 +91,7 @@ process ExtractExonerateCds {
 // ---------------------------------------------------------------------------
 process CombineExonerateHits {
     tag "Combining Exonerate hits"
-    publishDir { "${params.outdir}/exonerate_hits/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/7_exonerate_hits/${query_id}" }, mode: 'copy'
 
     input:
     tuple val(query_id), path(query_fasta), path(cds_fastas), path(protein_fastas), path(summary_tsvs)
@@ -224,12 +224,12 @@ PYEOF
             if [ "\${line_count}" -gt 1 ]; then
                 tail -n +2 "\${tsv}" >> "\${clean_query_id}_all_exonerate_summary.tsv"
             else
-                echo -e "\${sample_id}\t${query_id}\tno_hits_found\t.\t0\t0\t0\t." \
+                echo -e "\${sample_id}\t${query_id}\tno_hits_found\t.\tNA\tNA\tNA\tNA\t0\t0\t0\t." \
                     >> "\${clean_query_id}_all_exonerate_summary.tsv"
             fi
         done
     else
-        printf 'Sample_ID\tQuery_ID\tScaffold\tStrand\tExon_Count\tCDS_Length\tProtein_Length\tExon_Coordinates\n' \
+        printf 'sample_id\tquery_id\tsubject_id\tstrand\tquery_start\tquery_end\tsubject_start\tsubject_end\texon_count\tcds_length\tprotein_length\texon_coordinates\n' \
             > "\${clean_query_id}_all_exonerate_summary.tsv"
     fi
     """

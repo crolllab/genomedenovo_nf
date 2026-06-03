@@ -3,10 +3,10 @@ process AlignMAFFT {
     tag "MAFFT alignment"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/alignments/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/8_alignments/${tool_type}/${query_id}" }, mode: 'copy'
     
     input:
-    tuple val(query_id), path(sequences_fasta)
+    tuple val(query_id), val(tool_type), path(sequences_fasta)
     
     output:
     tuple val(query_id), path("*_aligned_sequences.fasta"), emit: alignment

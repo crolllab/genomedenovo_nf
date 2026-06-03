@@ -5,7 +5,7 @@ process ExtractBlastHits {
     maxRetries 3
     memory '2GB'
     cpus 1
-    publishDir { "${params.outdir}/blast_hits/${query_id}/hit_sequences" }, mode: 'copy'
+    publishDir { "${params.outdir}/6_blast_hits/${query_id}/hit_sequences" }, mode: 'copy'
     
     input:
     tuple val(query_id), val(sample_id), path(blast_results), path(scaffolds_fasta)
@@ -23,7 +23,7 @@ process ExtractBlastHits {
     PADDING=${params.padding}
     
     # Create header for hit info file
-    echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > "${sample_id}_top_hits_info.tsv"
+    echo -e "sample_id\tquery_id\tsubject_id\tstrand\tpercent_identity\talignment_length\tquery_start\tquery_end\tsubject_start\tsubject_end\tevalue\tbitscore" > "${sample_id}_top_hits_info.tsv"
     
     # Check if BLAST results file exists and is not empty
     if [ ! -s "${blast_results}" ]; then
@@ -68,8 +68,9 @@ process ExtractBlastHits {
                 if (max_c < 0 || hi > max_c) max_c = hi
             }
             split(rows[best_row[q]], f, "\t")
+            strand = ((f[9]+0) <= (f[10]+0)) ? "+" : "-"
             # Output merged span (sstart=min, send=max — always forward)
-            print f[1]"\t"f[2]"\t"f[3]"\t"f[4]"\t"f[5]"\t"f[6]"\t"f[7]"\t"f[8]"\t"min_c"\t"max_c"\t"f[11]"\t"f[12]
+            print f[1]"\t"f[2]"\t"f[3]"\t"f[4]"\t"f[5]"\t"f[6]"\t"f[7]"\t"f[8]"\t"min_c"\t"max_c"\t"f[11]"\t"f[12]"\t"strand
         }
     }' "${blast_results}" > top_hits.tsv
     
@@ -85,7 +86,7 @@ process ExtractBlastHits {
     # Process each top hit
     > "${sample_id}_top_hits.fasta"
     
-    while IFS=\$'\t' read -r qseqid sseqid pident align_length mismatch gapopen qstart qend sstart send evalue bitscore; do
+    while IFS=\$'\t' read -r qseqid sseqid pident align_length mismatch gapopen qstart qend sstart send evalue bitscore strand; do
         # Determine start and end coordinates (ensure start < end for samtools)
         # Also determine if sequence is in reverse orientation
         if [ "\$sstart" -le "\$send" ]; then
@@ -158,13 +159,14 @@ process ExtractBlastHits {
                 mv temp_rc.txt temp_seq.txt
             fi
             
-            # Write sequence with sample name as header
-            echo ">${sample_id}" >> "${sample_id}_top_hits.fasta"
+            # Write sequence with contig name + padded coordinates as header
+            # (parsed by extract_exonerate_cds.py to recover absolute coords)
+            echo ">\${sseqid}:\${start}-\${end}" >> "${sample_id}_top_hits.fasta"
             fold -w 60 temp_seq.txt >> "${sample_id}_top_hits.fasta"
             echo "" >> "${sample_id}_top_hits.fasta"
             
             # Add hit information to TSV (use original BLAST hit coordinates, not padded)
-            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
+            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${strand}\t\${pident}\t\${align_length}\t\${qstart}\t\${qend}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
             rm temp_hit.fasta temp_seq.txt temp_samtools_error.log 2>/dev/null || true
         else
             # Log samtools error details
@@ -191,13 +193,13 @@ process ExtractBlastHits {
                             mv temp_rc.txt temp_subseq.txt
                         fi
                         
-                        echo ">${sample_id}" >> "${sample_id}_top_hits.fasta"
+                        echo ">\${sseqid}:\${start}-\${end}" >> "${sample_id}_top_hits.fasta"
                         # Add newlines every 60 characters for proper FASTA format
                         fold -w 60 temp_subseq.txt >> "${sample_id}_top_hits.fasta"
                         echo "" >> "${sample_id}_top_hits.fasta"
                         
                         # Use original coordinates in TSV
-                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${pident}\t\${align_length}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
+                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${strand}\t\${pident}\t\${align_length}\t\${qstart}\t\${qend}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
                     else
                         echo "ERROR: Fallback method failed - extracted sequence is empty for \${sseqid}:\${start}-\${end}" >&2
                     fi
@@ -227,7 +229,7 @@ process ExtractBlastHits {
 // Process to combine all extracted hit sequences for a specific query
 process CombineBlastHits {
     tag "Combining BLAST hits"
-    publishDir { "${params.outdir}/blast_hits/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/6_blast_hits/${query_id}" }, mode: 'copy'
     
     input:
     tuple val(query_id), path(query_fasta), path(hit_sequences), path(hit_info_files)
@@ -278,11 +280,11 @@ process CombineBlastHits {
                 tail -n +2 "\$file" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
             else
                 # File has only header (no hits), add no_hits_found entry
-                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
+                echo -e "\${sample_id}\tno_hits_found\tno_hits_found\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
             fi
         done
     else
-        echo -e "Sample_ID\tQuery_ID\tSubject_ID\tPercent_Identity\tAlignment_Length\tStart\tEnd\tE_value\tBit_Score" > "\${clean_query_id}_all_blast_hits_summary.tsv"
+        echo -e "sample_id\tquery_id\tsubject_id\tstrand\tpercent_identity\talignment_length\tquery_start\tquery_end\tsubject_start\tsubject_end\tevalue\tbitscore" > "\${clean_query_id}_all_blast_hits_summary.tsv"
         echo "No BLAST hit files found" >> "\${clean_query_id}_all_blast_hits_summary.tsv"
     fi
     """

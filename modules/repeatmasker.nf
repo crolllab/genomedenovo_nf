@@ -2,7 +2,7 @@ process RepeatMask {
     tag "RepeatMasker: ${sample_id}"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir "${params.outdir}/repeatmasker", mode: 'copy'
+    publishDir "${params.outdir}/11_repeatmasker", mode: 'copy'
 
     input:
     tuple val(sample_id), path(scaffolds)

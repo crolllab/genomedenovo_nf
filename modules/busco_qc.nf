@@ -3,7 +3,7 @@ process BUSCO {
     tag "BUSCO: ${sample_id}"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir "${params.outdir}/busco_results", mode: 'copy', pattern: "*_busco"
+    publishDir "${params.outdir}/4_busco", mode: 'copy', pattern: "*_busco"
 
     input:
     tuple val(sample_id), path(scaffolds)
@@ -45,7 +45,7 @@ process BUSCO {
 // Collect and summarize all BUSCO short summaries into a single TSV
 process SummarizeBuscoMetrics {
     tag "Summarizing BUSCO metrics"
-    publishDir "${params.outdir}/busco_results", mode: 'copy'
+    publishDir "${params.outdir}/4_busco", mode: 'copy'
 
     input:
     path summaries

@@ -101,7 +101,6 @@ nextflow run main.nf \
 nextflow run main.nf \
     --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
     --blast_query example/lacZ_WP_000177906.fasta \
-    --busco_lineage bacteria_odb10 \
     --reference_genome example/ecoli_K12_MG1655.fasta \
     --locus_coverage \
     --outdir example/output
@@ -114,5 +113,20 @@ nextflow run main.nf \
     --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
     --blast_query example/lacZ_WP_000177906.fasta \
     --repeat_library example/ecoli_IS_elements.fasta \
+    --outdir example/output
+```
+
+**Option 7 - run all options:**
+
+```bash
+nextflow run main.nf \
+    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --blast_query example/lacZ_WP_000177906.fasta \
+    --search_tool exonerate \
+    --repeat_library example/ecoli_IS_elements.fasta \
+    --busco_lineage bacteria_odb10 \
+    --reference_genome example/ecoli_K12_MG1655.fasta \
+    --locus_coverage \
+    --phylo_tree \
     --outdir example/output
 ```

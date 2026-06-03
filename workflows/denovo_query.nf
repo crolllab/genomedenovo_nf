@@ -14,6 +14,7 @@ include { AlignMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignExonerateCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
+include { MergeExonerateSummaries } from '../modules/summarize_exonerate'
 include { SummarizeFastpStats } from '../modules/summarize_fastp'
 include { SummarizeBwaStats } from '../modules/summarize_bwa'
 include { bwaIndex } from '../modules/bwa_index'
@@ -478,7 +479,7 @@ workflow denovo_query {
         MergeBlastSummaries(all_summaries)
 
         // Align BLAST hit sequences across samples
-        AlignMAFFT(CombineBlastHits.out.combined_sequences)
+        AlignMAFFT(CombineBlastHits.out.combined_sequences.map { query_id, fasta -> [query_id, "blast", fasta] })
 
         // ------------------------------------------------------------------
         // Exonerate path  (--search_tool exonerate)
@@ -521,11 +522,17 @@ workflow denovo_query {
 
             CombineExonerateHits(exonerate_combined_input)
 
+            // Merge per-query exonerate summary TSVs into a single wide-format table
+            all_exonerate_summaries = CombineExonerateHits.out.summary
+                .map { query_id, summary_file -> summary_file }
+                .collect()
+            MergeExonerateSummaries(all_exonerate_summaries)
+
             // Align nucleotide CDS sequences across samples
-            AlignExonerateCdsMAFFT(CombineExonerateHits.out.combined_cds)
+            AlignExonerateCdsMAFFT(CombineExonerateHits.out.combined_cds.map { query_id, fasta -> [query_id, "exonerate", fasta] })
 
             // Align protein sequences across samples
-            AlignProteinMAFFT(CombineExonerateHits.out.combined_protein)
+            AlignProteinMAFFT(CombineExonerateHits.out.combined_protein.map { query_id, fasta -> [query_id, "exonerate", fasta] })
 
             exonerate_done = CombineExonerateHits.out.combined_cds
                 .map { query_id, fasta -> fasta }
@@ -558,6 +565,7 @@ workflow denovo_query {
 
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
+                .mix(MergeExonerateSummaries.out.merged_summary.collect())
                 .mix(exonerate_done)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)

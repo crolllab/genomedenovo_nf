@@ -2,7 +2,7 @@ process SummarizeBwaStats {
     tag "Summarizing BWA mapping stats"
     errorStrategy 'retry'
     maxRetries 3
-    publishDir "${params.outdir}/bwa_mapping", mode: 'copy'
+    publishDir "${params.outdir}/9_bwa_mapping", mode: 'copy'
 
     input:
     path json_files

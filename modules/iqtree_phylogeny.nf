@@ -5,7 +5,7 @@ process IQtreePhylogeny {
     tag "IQ-tree BUSCO phylogeny"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir "${params.outdir}/phylogeny", mode: 'copy'
+    publishDir "${params.outdir}/5_phylogeny", mode: 'copy'
 
     input:
     path supermatrix
