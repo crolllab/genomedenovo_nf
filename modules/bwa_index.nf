@@ -1,5 +1,5 @@
 process bwaIndex {
-    tag "BWA-mem2 index: ${reference}"
+    tag "BWA-mem2 index"
     errorStrategy 'retry'
     maxRetries 6
 

@@ -15,6 +15,7 @@ include { AlignMAFFT as AlignExonerateCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
 include { MergeBlastSummaries } from '../modules/summarize_blast'
 include { MergeExonerateSummaries } from '../modules/summarize_exonerate'
+include { SummarizeIsoforms } from '../modules/summarize_isoforms'
 include { SummarizeFastpStats } from '../modules/summarize_fastp'
 include { SummarizeBwaStats } from '../modules/summarize_bwa'
 include { bwaIndex } from '../modules/bwa_index'
@@ -24,6 +25,8 @@ include { RepeatMask } from '../modules/repeatmasker'
 include { AlignBuscoGene } from '../modules/align_busco_genes'
 include { BuildSupermatrix } from '../modules/build_supermatrix'
 include { IQtreePhylogeny } from '../modules/iqtree_phylogeny'
+include { IQtreeAlignmentPhylogeny as IQtreeCdsPhylogeny } from '../modules/iqtree_phylogeny'
+include { IQtreeAlignmentPhylogeny as IQtreeProteinPhylogeny } from '../modules/iqtree_phylogeny'
 include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from '../modules/locus_coverage'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
@@ -534,6 +537,20 @@ workflow denovo_query {
             // Align protein sequences across samples
             AlignProteinMAFFT(CombineExonerateHits.out.combined_protein.map { query_id, fasta -> [query_id, "exonerate", fasta] })
 
+            // Build a phylogeny for each query from the CDS and protein alignments
+            IQtreeCdsPhylogeny(
+                AlignExonerateCdsMAFFT.out.alignment.map { query_id, fasta -> [query_id, "cds", fasta] }
+            )
+            IQtreeProteinPhylogeny(
+                AlignProteinMAFFT.out.alignment.map { query_id, fasta -> [query_id, "protein", fasta] }
+            )
+
+            // Isoform summary: join CDS and protein alignments per query and assign
+            // consecutive haplotype numbers for unique CDS / protein sequences.
+            isoform_input = AlignExonerateCdsMAFFT.out.alignment
+                .join(AlignProteinMAFFT.out.alignment)
+            SummarizeIsoforms(isoform_input)
+
             exonerate_done = CombineExonerateHits.out.combined_cds
                 .map { query_id, fasta -> fasta }
 
@@ -567,6 +584,8 @@ workflow denovo_query {
                 .mix(MergeBlastSummaries.out)
                 .mix(MergeExonerateSummaries.out.merged_summary.collect())
                 .mix(exonerate_done)
+                .mix(IQtreeCdsPhylogeny.out.results.collect())
+                .mix(IQtreeProteinPhylogeny.out.results.collect())
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)

@@ -1,6 +1,6 @@
 // BUSCO process for genome completeness assessment
 process BUSCO {
-    tag "BUSCO: ${sample_id}"
+    tag "BUSCO assessment"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
     publishDir "${params.outdir}/4_busco", mode: 'copy', pattern: "*_busco"

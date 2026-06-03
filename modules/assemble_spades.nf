@@ -1,6 +1,6 @@
 // Fixed SPAdes process for specific file outputs
 process SPAdes {
-    tag "SPAdes assembly: ${sample_id}"
+    tag "SPAdes PE assembly"
     errorStrategy 'retry'
     maxRetries 3
 
@@ -57,7 +57,7 @@ process SPAdes {
 
 // SPAdes process for single-end reads
 process SPAdesSE {
-    tag "SPAdes SE assembly: ${sample_id}"
+    tag "SPAdes SE assembly"
     errorStrategy 'retry'
     maxRetries 3
 

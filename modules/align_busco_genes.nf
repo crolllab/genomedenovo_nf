@@ -2,7 +2,7 @@
 // Input: one [gene_id, [fna_files_from_all_samples]] tuple per gene.
 // Output: a single aligned FASTA per gene for downstream supermatrix construction.
 process AlignBuscoGene {
-    tag "MAFFT: ${gene_id}"
+    tag "MAFFT alignment"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
 

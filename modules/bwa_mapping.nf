@@ -1,5 +1,5 @@
 process bwaMap {
-    tag "BWA-mem2 mapping: ${sample_id}"
+    tag "BWA-mem2 mapping"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
 

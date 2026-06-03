@@ -1,3 +1,58 @@
+// Build a maximum-likelihood phylogeny from a single MAFFT alignment with IQ-tree3.
+// Used for Exonerate CDS and protein alignments — one tree per query.
+// Input:  [query_id, seq_type, alignment_fasta]  (seq_type: "cds" or "protein")
+// Output: IQ-tree result files prefixed <query_id>_<seq_type>_phylogeny, published
+//         alongside the alignment in 8_alignments/exonerate/<query_id>/.
+process IQtreeAlignmentPhylogeny {
+    tag "IQ-tree alignment phylogeny"
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
+    publishDir { "${params.outdir}/8_alignments/exonerate/${query_id}" }, mode: 'copy'
+
+    input:
+    tuple val(query_id), val(seq_type), path(alignment_fasta)
+
+    output:
+    tuple val(query_id), path("*_phylogeny.*"), emit: results
+
+    script:
+    """
+    set -euo pipefail
+
+    clean_id="\$(echo '${query_id}' | sed 's|[^a-zA-Z0-9_.-]|_|g')"
+    prefix="\${clean_id}_${seq_type}_phylogeny"
+
+    n_taxa=\$(grep -c '^>' ${alignment_fasta} || echo 0)
+
+    if [ "\$n_taxa" -lt 3 ]; then
+        echo "Insufficient taxa (\$n_taxa) for phylogeny inference — need at least 3" > "\${prefix}.log"
+        exit 0
+    fi
+
+    # Count unique sequences to avoid bootstrap failure when IQ-tree removes duplicates
+    n_unique=\$(awk '/^>/{if(seq!="") seen[seq]++; seq=""; next}{seq=seq\$0} END{if(seq!="") seen[seq]++; print length(seen)}' ${alignment_fasta})
+
+    if [ "\$n_unique" -lt 3 ]; then
+        echo "Insufficient unique sequences (\$n_unique) for phylogeny inference — need at least 3" > "\${prefix}.log"
+        exit 0
+    fi
+
+    if [ "\$n_unique" -ge 4 ]; then
+        BOOT_ARG="-B 1000"
+    else
+        BOOT_ARG=""
+    fi
+
+    iqtree3 \\
+        -s ${alignment_fasta} \\
+        -m MFP \\
+        \$BOOT_ARG \\
+        -T ${task.cpus} \\
+        --prefix "\${prefix}" \\
+        --redo
+    """
+}
+
 // Build a maximum-likelihood phylogeny from a BUSCO supermatrix with IQ-tree3.
 // Input: supermatrix FASTA and NEXUS partition file from BuildSupermatrix.
 // Output: IQ-tree result files including the treefile.
@@ -18,9 +73,10 @@ process IQtreePhylogeny {
     """
     set -euo pipefail
 
-    # Only apply ultrafast bootstrap when there are ≥4 taxa (IQ-tree requirement)
+    # Only apply ultrafast bootstrap when there are ≥4 unique taxa (IQ-tree requirement)
     n_taxa=\$(grep -c '^>' ${supermatrix})
-    if [ "\$n_taxa" -ge 4 ]; then
+    n_unique=\$(awk '/^>/{if(seq!="") seen[seq]++; seq=""; next}{seq=seq\$0} END{if(seq!="") seen[seq]++; print length(seen)}' ${supermatrix})
+    if [ "\$n_unique" -ge 4 ]; then
         BOOT_ARG="-B 1000"
     else
         BOOT_ARG=""

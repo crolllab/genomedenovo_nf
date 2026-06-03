@@ -1,5 +1,5 @@
 process SRAresolve {
-    tag "Querying SRA/ENA for $accessions_file"
+    tag "Querying SRA/ENA"
     cpus 1
     memory '4GB'
     publishDir "${params.outdir}", mode: 'copy', overwrite: true

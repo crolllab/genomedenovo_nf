@@ -1,5 +1,5 @@
 process RepeatMask {
-    tag "RepeatMasker: ${sample_id}"
+    tag "RepeatMasker"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
     publishDir "${params.outdir}/11_repeatmasker", mode: 'copy'
