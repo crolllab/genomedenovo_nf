@@ -36,6 +36,7 @@ process BlastLocusOnReference {
     ${blast_prog} -query ${query_fasta} -db ref_db ${blast_extra} \\
         -outfmt '6 sseqid sstart send sstrand evalue bitscore' \\
         -max_target_seqs 1 -max_hsps 1 \\
+        -num_threads ${task.cpus} \\
         -out blast_locus.txt
 
     # Write header; append best hit if found

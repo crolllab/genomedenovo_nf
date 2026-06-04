@@ -87,7 +87,7 @@ process IQtreePhylogeny {
         -p ${partitions} \\
         -m MFP \\
         \$BOOT_ARG \\
-        -T ${task.cpus} \
+        -T ${task.cpus} \\
         --prefix busco_phylogeny \\
         --redo
     """
