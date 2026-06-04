@@ -6,7 +6,7 @@ include { SRAdownloadPE; SRAdownloadSE } from '../modules/download_SRA'
 include { trimSequencesPE; trimSequencesSE } from '../modules/fastp_trimming'
 include { SPAdes; SPAdesSE } from '../modules/assemble_spades'
 include { QUAST; SummarizeAssemblyMetrics } from '../modules/assembly_qc'
-include { BUSCO; SummarizeBuscoMetrics } from '../modules/busco_qc'
+include { DownloadBUSCODatabase; BUSCO; SummarizeBuscoMetrics } from '../modules/busco_qc'
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { ExonerateSearch; ExtractExonerateCds; CombineExonerateHits } from '../modules/exonerate_search'
@@ -25,6 +25,7 @@ include { RepeatMask } from '../modules/repeatmasker'
 include { AlignBuscoGene } from '../modules/align_busco_genes'
 include { BuildSupermatrix } from '../modules/build_supermatrix'
 include { IQtreePhylogeny } from '../modules/iqtree_phylogeny'
+include { IQtreeAlignmentPhylogeny as IQtreeBlastPhylogeny } from '../modules/iqtree_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeCdsPhylogeny } from '../modules/iqtree_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeProteinPhylogeny } from '../modules/iqtree_phylogeny'
 include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from '../modules/locus_coverage'
@@ -369,7 +370,14 @@ workflow denovo_query {
     // BUSCO completeness (optional — only runs when --busco_lineage is set)
     // ---------------------
     if (params.busco_lineage) {
-        BUSCO(all_scaffolds_ch)
+        // Download the lineage database once; if busco_db_path is pre-supplied, use it directly
+        if (params.busco_db_path) {
+            busco_db_ch = Channel.value(file(params.busco_db_path))
+        } else {
+            DownloadBUSCODatabase()
+            busco_db_ch = DownloadBUSCODatabase.out.db_dir.first()
+        }
+        BUSCO(all_scaffolds_ch, busco_db_ch)
         SummarizeBuscoMetrics(BUSCO.out.summary.collect())
 
         // ----- BUSCO gene phylogeny (optional — triggered by --phylo_tree) -----
@@ -484,6 +492,11 @@ workflow denovo_query {
         // Align BLAST hit sequences across samples
         AlignMAFFT(CombineBlastHits.out.combined_sequences.map { query_id, fasta -> [query_id, "blast", fasta] })
 
+        // Build a phylogeny for each query from the BLAST hit alignment
+        IQtreeBlastPhylogeny(
+            AlignMAFFT.out.alignment.map { query_id, fasta -> [query_id, "blast", fasta] }
+        )
+
         // ------------------------------------------------------------------
         // Exonerate path  (--search_tool exonerate)
         // Runs on BLAST-extracted regions (not the full assembly) for speed.
@@ -584,6 +597,7 @@ workflow denovo_query {
                 .mix(MergeBlastSummaries.out)
                 .mix(MergeExonerateSummaries.out.merged_summary.collect())
                 .mix(exonerate_done)
+                .mix(IQtreeBlastPhylogeny.out.results.collect())
                 .mix(IQtreeCdsPhylogeny.out.results.collect())
                 .mix(IQtreeProteinPhylogeny.out.results.collect())
                 .mix(fastp_summary_done)
@@ -622,6 +636,7 @@ workflow denovo_query {
 
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
+                .mix(IQtreeBlastPhylogeny.out.results.collect())
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)

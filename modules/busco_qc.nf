@@ -1,3 +1,18 @@
+// Download BUSCO lineage database once (cached via storeDir to avoid re-downloading on -resume)
+process DownloadBUSCODatabase {
+    tag "Downloading BUSCO database: ${params.busco_lineage}"
+    storeDir "${params.outdir}/busco_db_cache"
+
+    output:
+    path "busco_downloads", emit: db_dir
+
+    script:
+    """
+    set -euo pipefail
+    busco --download ${params.busco_lineage} --download_path busco_downloads
+    """
+}
+
 // BUSCO process for genome completeness assessment
 process BUSCO {
     tag "BUSCO assessment"
@@ -7,6 +22,7 @@ process BUSCO {
 
     input:
     tuple val(sample_id), path(scaffolds)
+    path db_dir
 
     output:
     tuple val(sample_id), path("${sample_id}_busco"), emit: result_dir
@@ -14,9 +30,6 @@ process BUSCO {
     tuple val(sample_id), path("${sample_id}_scogs"), emit: single_copy_dir
 
     script:
-    def db_arg = params.busco_db_path
-        ? "--offline --download_path ${params.busco_db_path}"
-        : "--download_path ./busco_downloads"
     """
     set -euo pipefail
 
@@ -26,7 +39,7 @@ process BUSCO {
         -l ${params.busco_lineage} \\
         -o ${sample_id}_busco \\
         -c ${task.cpus} \\
-        ${db_arg}
+        --offline --download_path ${db_dir}
 
     cp ${sample_id}_busco/short_summary.*.txt .
 

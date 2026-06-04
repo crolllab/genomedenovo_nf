@@ -337,8 +337,13 @@ def main():
             # numeric suffix only when multiple gene models are reported.
             header = sample_id if n_models == 1 else f'{sample_id}_{model_idx}'
 
-            contig_start = min(abs_positions) if abs_positions else 'NA'
-            contig_end   = max(abs_positions) if abs_positions else 'NA'
+            # Report in original orientation: start > end for minus-strand hits (BLAST convention)
+            if abs_positions:
+                contig_start = max(abs_positions) if strand == '-' else min(abs_positions)
+                contig_end   = min(abs_positions) if strand == '-' else max(abs_positions)
+            else:
+                contig_start = 'NA'
+                contig_end   = 'NA'
 
             cds_out.write(f'>{header}\n{wrap(full_cds)}\n')
             prot_out.write(f'>{header}_prot\n{wrap(prot)}\n')

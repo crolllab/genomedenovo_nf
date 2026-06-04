@@ -166,7 +166,9 @@ process ExtractBlastHits {
             echo "" >> "${sample_id}_top_hits.fasta"
             
             # Add hit information to TSV (use original BLAST hit coordinates, not padded)
-            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${strand}\t\${pident}\t\${align_length}\t\${qstart}\t\${qend}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
+            # Report in original BLAST orientation: sstart > send for minus-strand hits
+            if [ "\$strand" = "-" ]; then tsv_start=\$orig_end; tsv_end=\$orig_start; else tsv_start=\$orig_start; tsv_end=\$orig_end; fi
+            echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${strand}\t\${pident}\t\${align_length}\t\${qstart}\t\${qend}\t\${tsv_start}\t\${tsv_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
             rm temp_hit.fasta temp_seq.txt temp_samtools_error.log 2>/dev/null || true
         else
             # Log samtools error details
@@ -198,8 +200,9 @@ process ExtractBlastHits {
                         fold -w 60 temp_subseq.txt >> "${sample_id}_top_hits.fasta"
                         echo "" >> "${sample_id}_top_hits.fasta"
                         
-                        # Use original coordinates in TSV
-                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${strand}\t\${pident}\t\${align_length}\t\${qstart}\t\${qend}\t\${orig_start}\t\${orig_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
+                        # Use original coordinates in TSV (BLAST orientation: start > end for minus strand)
+                        if [ "\$strand" = "-" ]; then tsv_start=\$orig_end; tsv_end=\$orig_start; else tsv_start=\$orig_start; tsv_end=\$orig_end; fi
+                        echo -e "${sample_id}\t\${qseqid}\t\${sseqid}\t\${strand}\t\${pident}\t\${align_length}\t\${qstart}\t\${qend}\t\${tsv_start}\t\${tsv_end}\t\${evalue}\t\${bitscore}" >> "${sample_id}_top_hits_info.tsv"
                     else
                         echo "ERROR: Fallback method failed - extracted sequence is empty for \${sseqid}:\${start}-\${end}" >&2
                     fi

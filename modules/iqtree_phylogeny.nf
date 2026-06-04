@@ -1,13 +1,13 @@
 // Build a maximum-likelihood phylogeny from a single MAFFT alignment with IQ-tree3.
-// Used for Exonerate CDS and protein alignments — one tree per query.
-// Input:  [query_id, seq_type, alignment_fasta]  (seq_type: "cds" or "protein")
+// Used for BLAST or Exonerate alignments — one tree per query.
+// Input:  [query_id, seq_type, alignment_fasta]  (seq_type: "blast", "cds", or "protein")
 // Output: IQ-tree result files prefixed <query_id>_<seq_type>_phylogeny, published
-//         alongside the alignment in 8_alignments/exonerate/<query_id>/.
+//         alongside the alignment in 8_alignments/<blast|exonerate>/<query_id>/.
 process IQtreeAlignmentPhylogeny {
     tag "IQ-tree alignment phylogeny"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/8_alignments/exonerate/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/8_alignments/${seq_type == 'blast' ? 'blast' : 'exonerate'}/${query_id}" }, mode: 'copy'
 
     input:
     tuple val(query_id), val(seq_type), path(alignment_fasta)
