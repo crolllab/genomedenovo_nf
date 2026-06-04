@@ -375,7 +375,7 @@ workflow denovo_query {
             busco_db_ch = Channel.value(file(params.busco_db_path))
         } else {
             DownloadBUSCODatabase()
-            busco_db_ch = DownloadBUSCODatabase.out.db_dir.first()
+            busco_db_ch = DownloadBUSCODatabase.out.db_dir
         }
         BUSCO(all_scaffolds_ch, busco_db_ch)
         SummarizeBuscoMetrics(BUSCO.out.summary.collect())
