@@ -14,7 +14,8 @@ params.busco_lineage = ""      // BUSCO lineage (e.g. dothideomycetes_odb10). If
 params.busco_db_path = ""      // Optional: path to pre-downloaded BUSCO databases (enables offline mode)
 params.reference_genome = ""   // Optional: reference genome FASTA for BWA-mem2 mapping (triggers bwa_mapping module)
 params.repeat_library   = ""   // Optional: TE consensus library FASTA for RepeatMasker (triggers repeatmasker module)
-params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny with IQ-tree (requires --busco_lineage)
+params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny (requires --busco_lineage)
+params.busco_tree       = 'raxml-ng' // Phylogenetic tool for BUSCO supermatrix: 'raxml-ng' (default) or 'iqtree'
 params.locus_coverage   = false // Optional: compute read depth at query BLAST locus on reference (requires --blast_query and --reference_genome)
 params.slurm_queue      = ""    // Required when using -profile slurm: SLURM partition name (e.g. 'long', 'normal')
 
@@ -49,7 +50,7 @@ workflow {
      busco lineage  : ${params.busco_lineage ?: 'skipped'}
      reference      : ${params.reference_genome ?: 'none (bwa mapping skipped)'}
      repeat library : ${params.repeat_library ?: 'none (repeatmasker skipped)'}
-     phylo tree     : ${params.phylo_tree ? 'enabled (IQ-tree BUSCO gene phylogeny)' : 'skipped'}
+     phylo tree     : ${params.phylo_tree ? "enabled (${params.busco_tree == 'iqtree' ? 'IQ-tree' : 'RAxML-NG'} BUSCO gene phylogeny)" : 'skipped'}
      SLURM queue    : ${params.slurm_queue ?: '(not set — not using SLURM)'}
     """
 

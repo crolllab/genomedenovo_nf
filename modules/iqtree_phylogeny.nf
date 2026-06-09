@@ -2,12 +2,12 @@
 // Used for BLAST or Exonerate alignments — one tree per query.
 // Input:  [query_id, seq_type, alignment_fasta]  (seq_type: "blast", "cds", or "protein")
 // Output: IQ-tree result files prefixed <query_id>_<seq_type>_phylogeny, published
-//         alongside the alignment in 8_alignments/<blast|exonerate>/<query_id>/.
+//         in 9_phylogenies/<blast|exonerate>/<query_id>/.
 process IQtreeAlignmentPhylogeny {
     tag "IQ-tree alignment phylogeny"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/8_alignments/${seq_type == 'blast' ? 'blast' : 'exonerate'}/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/9_phylogenies/${seq_type == 'blast' ? 'blast' : 'exonerate'}/${query_id}" }, mode: 'copy'
 
     input:
     tuple val(query_id), val(seq_type), path(alignment_fasta)
@@ -60,7 +60,7 @@ process IQtreePhylogeny {
     tag "IQ-tree BUSCO phylogeny"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir "${params.outdir}/5_phylogeny", mode: 'copy'
+    publishDir "${params.outdir}/5_busco_phylogeny", mode: 'copy'
 
     input:
     path supermatrix

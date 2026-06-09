@@ -25,6 +25,7 @@ include { RepeatMask } from '../modules/repeatmasker'
 include { AlignBuscoGene } from '../modules/align_busco_genes'
 include { BuildSupermatrix } from '../modules/build_supermatrix'
 include { IQtreePhylogeny } from '../modules/iqtree_phylogeny'
+include { RaxmlNgPhylogeny } from '../modules/raxml_ng_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeBlastPhylogeny } from '../modules/iqtree_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeCdsPhylogeny } from '../modules/iqtree_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeProteinPhylogeny } from '../modules/iqtree_phylogeny'
@@ -56,6 +57,10 @@ workflow denovo_query {
 
     if (params.phylo_tree && !params.busco_lineage) {
         exit 1, "ERROR: --phylo_tree requires --busco_lineage to be set."
+    }
+
+    if (params.phylo_tree && !(params.busco_tree in ['raxml-ng', 'iqtree'])) {
+        exit 1, "ERROR: --busco_tree must be 'raxml-ng' (default) or 'iqtree'. Got: '${params.busco_tree}'."
     }
 
     if (!(params.search_tool in ['blast', 'exonerate'])) {
@@ -403,9 +408,14 @@ workflow denovo_query {
             concat_script_ch = Channel.value(file("${projectDir}/bin/concat_busco_alignments.py"))
             BuildSupermatrix(AlignBuscoGene.out.alignment.collect(), concat_script_ch)
 
-            // Infer phylogeny with IQ-tree
-            IQtreePhylogeny(BuildSupermatrix.out.supermatrix, BuildSupermatrix.out.partitions)
-            phylo_done = IQtreePhylogeny.out.results.collect()
+            // Infer phylogeny with RAxML-NG (default) or IQ-tree
+            if (params.busco_tree == 'iqtree') {
+                IQtreePhylogeny(BuildSupermatrix.out.supermatrix, BuildSupermatrix.out.partitions)
+                phylo_done = IQtreePhylogeny.out.results.collect()
+            } else {
+                RaxmlNgPhylogeny(BuildSupermatrix.out.supermatrix, BuildSupermatrix.out.partitions)
+                phylo_done = RaxmlNgPhylogeny.out.results.collect()
+            }
         }
     }
 

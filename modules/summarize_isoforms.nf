@@ -12,7 +12,7 @@ process SummarizeIsoforms {
     tag "Isoform summary"
     errorStrategy { task.attempt <= 2 ? 'retry' : 'ignore' }
     maxRetries 2
-    publishDir "${params.outdir}/12_summary_data", mode: 'copy'
+    publishDir "${params.outdir}/13_summary_data", mode: 'copy'
 
     input:
     tuple val(query_id), path(cds_alignment), path(prot_alignment)

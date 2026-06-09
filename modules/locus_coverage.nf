@@ -16,7 +16,7 @@ process BlastLocusOnReference {
     tag "BLAST locus on reference"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/10_locus_coverage/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/11_locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
     tuple val(query_id), path(query_fasta), val(seq_type), path(reference)
@@ -59,7 +59,7 @@ process ComputeLocusCoverage {
     tag "Locus coverage"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/10_locus_coverage/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/11_locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
     tuple val(query_id), val(sample_id), path(bam), path(bai), path(locus_tsv)
@@ -153,7 +153,7 @@ process MergeLocusCoverage {
     tag "Merge locus coverage"
     errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
-    publishDir { "${params.outdir}/10_locus_coverage/${query_id}" }, mode: 'copy'
+    publishDir { "${params.outdir}/11_locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
     tuple val(query_id), path(tsvs)
