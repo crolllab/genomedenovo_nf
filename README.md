@@ -19,7 +19,8 @@ Implemented steps:
 - `exonerate`: spliced alignment and CDS extraction using protein or CDS queries (optional, `--search_tool exonerate`)
 - `bwa-mem2`: reference-guided read mapping for coverage assessment (optional, `--reference_genome`)
 - `repeatmasker`: transposable element annotation using a user-provided consensus library (optional, `--repeat_library`)
-- `iqtree3`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`) or from Exonerate CDS/protein alignments per query (optional, `--search_tool exonerate --phylo_tree`)
+- `raxml-ng` or `iqtree3`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`; RAxML-NG is the default, switch with `--busco_tree iqtree`)
+- `iqtree3`: maximum-likelihood phylogenetic trees from Exonerate CDS/protein alignments per query (optional, `--search_tool exonerate --phylo_tree`)
 - haplotype identification: assigns consecutive isoform IDs to unique CDS and protein sequences per query (optional, `--search_tool exonerate`)
 
 ## Step 1: Repository, singularity containers and nextflow environment
@@ -110,14 +111,21 @@ Available parameters
   --repeat_library /path/to/TE_library.fasta
   ```
 
-- `--phylo_tree`: Optional flag. When set, maximum-likelihood phylogenetic trees are built using **IQ-tree3**:
-  - **BUSCO gene supermatrix** (requires `--busco_lineage`): single-copy ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, concatenated into a supermatrix, and a tree is inferred with per-partition model selection (`-m MFP`) and 1000 ultrafast bootstrap replicates (`-B 1000`, applied only when ≥4 unique taxa are present). Output written to `5_phylogeny/`.
-  - **Exonerate CDS and protein phylogenies** (requires `--search_tool exonerate`): separate CDS and protein ML trees are built per query from the MAFFT-aligned Exonerate sequences. Bootstrap is applied when ≥4 unique sequences are present. Output written alongside the alignments in `8_alignments/exonerate/{query_id}/`.
+- `--phylo_tree`: Optional flag. When set, maximum-likelihood phylogenetic trees are built:
+  - **BUSCO gene supermatrix** (requires `--busco_lineage`): single-copy ortholog **protein** sequences (`.faa`, produced by BUSCO v6 via miniprot) are extracted per sample, aligned gene-by-gene with MAFFT (`--amino`), and concatenated into a supermatrix. By default the tree is inferred with **RAxML-NG** using per-gene LG+G partitions and 200 bootstrap replicates. Switch to IQ-tree3 with `--busco_tree iqtree` (per-partition model selection `-m MFP`, 1000 ultrafast bootstrap). Bootstrap is applied only when ≥4 unique taxa are present. Output written to `5_busco_phylogeny/`.
+  - **Exonerate CDS and protein phylogenies** (requires `--search_tool exonerate`): separate CDS and protein ML trees are built per query with **IQ-tree3** from the MAFFT-aligned Exonerate sequences. Model selection (`-m MFP`) and bootstrap (`-B 1000`) applied when ≥4 unique sequences are present. Output written to `9_phylogenies/exonerate/{query_id}/`.
 
   Threads are set by the active `-profile` configuration (16 by default for `slurm`/`local_highCPU`).
   ```bash
   --busco_lineage dothideomycetes_odb10 --phylo_tree
+  --busco_lineage dothideomycetes_odb10 --phylo_tree --busco_tree iqtree
   --search_tool exonerate --phylo_tree
+  ```
+
+- `--busco_tree`: Optional. Phylogenetic tool used to infer the BUSCO supermatrix tree when `--phylo_tree` is set. Default: `raxml-ng`. Use `iqtree` to switch to IQ-tree3.
+  ```bash
+  --busco_tree raxml-ng   # default: RAxML-NG with LG+G partitions (protein), 200 bootstraps
+  --busco_tree iqtree     # alternative: IQ-tree3 with MFP model selection, 1000 UFboot
   ```
 
 - `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `500`.
@@ -230,96 +238,101 @@ The pipeline will produce the following output files in the specified `--outdir`
 - `NCBI_SRR_SE_accessions.txt`: List of single-end SRA accessions
 - `NCBI_download_urls.tsv`: Download URLs and sources (ENA vs NCBI) for each accession
 
-### Assembly outputs
+### 1 — Read QC outputs (if using --reads or --SRA_index)
 - `1_fastq_stats/fastp_summary.tsv`: Table with read quality metrics before and after trimming for all samples (columns prefixed with `before_` / `after_`)
 - `1_fastq_stats/fastp_summary.txt`: Human-readable formatted version of the same metrics
+
+### 2 — Assembly outputs (if using --reads or --SRA_index)
+- `2_assemblies/{sample_id}/scaffolds.fasta`: SPAdes scaffold file per sample
+- `2_assemblies/{sample_id}/contigs.fasta`: SPAdes contig file per sample
+- `2_assemblies/{sample_id}/spades.log`: SPAdes log per sample
+
+### 3 — Assembly QC outputs
 - `3_quast/assembly_summary_metrics.tsv`: Combined QUAST metrics table for all samples
 - `3_quast/{sample_id}_quast/`: Per-sample QUAST report directory
 
-### BLAST outputs (per query)
-When multiple query sequences are provided, outputs are organized by query ID:
-- `6_blast_hits/{query_id}/blast_results/`: Folder containing raw BLAST results for each sample
-  - `{sample_id}_blast_results.tsv`: Raw BLAST output in tabular format
-- `6_blast_hits/{query_id}/hit_sequences/`: Folder containing extracted hit sequences
-  - `{sample_id}_top_hits.fasta`: FASTA file with extracted hit sequences
-  - `{sample_id}_top_hits_info.tsv`: Metadata table for each hit
-- `6_blast_hits/{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA file with **query sequence first**, then all hits for this query
-- `6_blast_hits/{query_id}/{query_id}_all_blast_hits_summary.tsv`: Combined metadata table for this query (hits only, not query)
+### 4 — BUSCO outputs (if using --busco_lineage)
+- `4_busco/{sample_id}_busco/`: Full BUSCO result directory per sample
+- `4_busco/short_summary.*.{sample_id}_busco.txt`: BUSCO short summary per sample
+- `4_busco/busco_summary_metrics.tsv`: Combined table with completeness metrics for all samples (Complete %, Single-copy %, Duplicated %, Fragmented %, Missing %)
 
-### Merged BLAST summary
-- **`6_blast_hits/blast_summary_merged.tsv`**: Wide-format table merging results from all queries
-  - First column: Sample_ID
-  - For each query: 5 essential columns with query-prefixed names:
-    - `{query}_Present`: TRUE/FALSE flag indicating if hit was found
-    - `{query}_Identity`: Percent identity of alignment
-    - `{query}_AlignLen`: Alignment length in bp
-    - `{query}_Evalue`: E-value
-    - `{query}_BitScore`: Bit score
-  - Example: With queries wagA, wagB, wagC → 1 + (5 × 3) = 16 columns total
-  - Detailed information (Query ID, Subject ID, coordinates) available in per-query files
+### 5 — BUSCO gene phylogeny outputs (if using --phylo_tree and --busco_lineage)
+- `5_busco_phylogeny/`: Contents depend on `--busco_tree`:
 
-### Alignment outputs
-- `8_alignments/blast/{query_id}/`: MAFFT alignments of BLAST hit sequences per query
-  - `{query_id}_all_blast_hits_aligned_sequences.fasta`: MAFFT alignment for all BLAST hits for this query
-  - `{query_id}_all_blast_hits_mafft_alignment_log.txt`: MAFFT alignment log and statistics
-- `8_alignments/exonerate/{query_id}/`: MAFFT alignments and IQ-tree phylogenies from Exonerate sequences per query (if `--search_tool exonerate`)
-  - `{query_id}_all_exonerate_cds_aligned_sequences.fasta`: CDS alignment
-  - `{query_id}_all_exonerate_protein_aligned_sequences.fasta`: Protein alignment
-  - `{query_id}_cds_phylogeny.*`: IQ-tree output files for CDS phylogeny (if `--phylo_tree`)
-  - `{query_id}_protein_phylogeny.*`: IQ-tree output files for protein phylogeny (if `--phylo_tree`)
+  **Default — RAxML-NG** (`--busco_tree raxml-ng`):
+  - `busco_phylogeny.raxml.bestTree`: Best-scoring ML tree in Newick format
+  - `busco_phylogeny.raxml.support`: Best tree annotated with bootstrap support values
+  - `busco_phylogeny.raxml.bestModel`: Best-fit substitution model per partition
+  - `busco_phylogeny.raxml.bootstraps`: All bootstrap trees
+  - `busco_phylogeny.raxml.mlTrees`: All ML trees from independent searches
+  - `busco_phylogeny.raxml.log`: RAxML-NG log file
 
-### Exonerate outputs (if using --search_tool exonerate)
-- `7_exonerate_hits/{query_id}/gff3_results/`: Raw Exonerate GFF3 files per sample
-  - `{sample_id}_exonerate.gff3`: Raw Exonerate target GFF for each sample
-- `7_exonerate_hits/{query_id}/hit_sequences/`: Extracted CDS and protein sequences per sample
-  - `{sample_id}_exonerate_cds.fasta`: Extracted CDS nucleotide sequences
-  - `{sample_id}_exonerate_protein.fasta`: Extracted protein sequences
-  - `{sample_id}_exonerate_summary.tsv`: Per-sample summary of exon coordinates and lengths
-- `7_exonerate_hits/{query_id}/`: Combined per-query outputs
-  - `{query_id}_all_exonerate_cds.fasta`: Combined CDS FASTA across samples (query prepended for nucleotide queries)
-  - `{query_id}_all_exonerate_protein.fasta`: Combined protein FASTA across samples
-  - `{query_id}_all_exonerate_summary.tsv`: Combined per-query summary table
-- `7_exonerate_hits/exonerate_summary_merged.tsv`: Wide-format table merging Exonerate results across all queries and samples
-
-### BUSCO outputs (if using --busco_lineage)
-- `4_busco/`: Per-sample BUSCO result directories and summary files:
-  - `{sample_id}_busco/`: Full BUSCO result directory per sample
-  - `short_summary.*.{sample_id}_busco.txt`: BUSCO short summary per sample
-  - `busco_summary_metrics.tsv`: Combined table with completeness metrics for all samples (Complete %, Single-copy %, Duplicated %, Fragmented %, Missing %)
-
-### BWA-mem2 mapping outputs (if using --reference_genome)
-- `9_bwa_mapping/`: One set of files per sample:
-  - `{sample_id}_sorted.bam`: Sorted, MAPQ≥10 filtered BAM file
-  - `{sample_id}_sorted.bam.bai`: BAM index
-  - `{sample_id}_flagstat.json`: SAMtools flagstat report with mapping statistics
-  - `bwa_mapping_summary.tsv`: Combined mapping statistics across all samples
-
-### Locus coverage outputs (if using --locus_coverage)
-- `10_locus_coverage/{query_id}/`: Per-query folder containing:
-  - `{query_id_safe}_ref_locus.tsv`: Best BLAST hit of the query on the reference genome (scaffold, coordinates)
-  - `{sample_id}_{query_id_safe}_locus_coverage.tsv`: Per-sample coverage table with columns:
-    - `scaffold`, `hit_start`, `hit_end`: BLAST hit coordinates on the reference
-    - `locus_start`, `locus_end`: Padded locus boundaries (±`--padding` bp)
-    - `locus_mean_depth`, `locus_median_depth`: Read depth at the padded locus (MQ ≥ 20)
-    - `genome_mean_depth`, `genome_sd_depth`: Mean and SD of per-base read depth across the whole genome (MQ ≥ 20)
-  - `{query_id_safe}_all_locus_coverage.tsv`: Combined table across all samples for this query
-
-### RepeatMasker outputs (if using --repeat_library)
-- `11_repeatmasker/`: One set of files per sample:
-  - `{sample_id}_repeatmasker.gff`: TE annotations in GFF format
-  - `{sample_id}_repeatmasker.masked`: Soft-masked genome FASTA
-  - `{sample_id}_repeatmasker.tbl`: RepeatMasker summary table
-
-### BUSCO gene phylogeny outputs (if using --phylo_tree and --busco_lineage)
-- `5_phylogeny/`: IQ-tree output files, including:
+  **Alternative — IQ-tree3** (`--busco_tree iqtree`):
   - `busco_phylogeny.treefile`: Best-scoring ML tree in Newick format
-  - `busco_phylogeny.contree`: Consensus tree with bootstrap support values
+  - `busco_phylogeny.contree`: Consensus tree with ultrafast bootstrap support values
   - `busco_phylogeny.iqtree`: Full IQ-tree report (model selection, tree statistics)
   - `busco_phylogeny.log`: IQ-tree log file
+  - `busco_phylogeny.best_scheme.nex`: Best partition scheme used
 
-### Isoform / haplotype summary outputs (if using --search_tool exonerate)
-- `12_summary_data/`: One isoform table per query:
-  - `{query_id}_isoforms.tsv`: Assigns consecutive CDS and protein isoform IDs to each sample based on unique sequences in the aligned FASTA files. Columns: `sample_id`, `cds_isoform`, `protein_isoform`.
+### 6 — BLAST outputs (if using --blast_query)
+When multiple query sequences are provided, outputs are organized by query ID:
+- `6_blast_hits/{query_id}/blast_results/{sample_id}_blast_results.tsv`: Raw BLAST output in tabular format
+- `6_blast_hits/{query_id}/hit_sequences/{sample_id}_top_hits.fasta`: Extracted hit sequences per sample
+- `6_blast_hits/{query_id}/hit_sequences/{sample_id}_top_hits_info.tsv`: Metadata table for each hit
+- `6_blast_hits/{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA with **query sequence first**, then all hits
+- `6_blast_hits/{query_id}/{query_id}_all_blast_hits_summary.tsv`: Combined metadata table (hits only)
+- **`6_blast_hits/blast_summary_merged.tsv`**: Wide-format table merging results from all queries
+  - First column: Sample_ID; for each query: `{query}_Present`, `{query}_Identity`, `{query}_AlignLen`, `{query}_Evalue`, `{query}_BitScore`
+
+### 7 — Exonerate outputs (if using --search_tool exonerate)
+- `7_exonerate_hits/{query_id}/gff3_results/{sample_id}_exonerate.gff3`: Raw Exonerate target GFF per sample
+- `7_exonerate_hits/{query_id}/hit_sequences/{sample_id}_exonerate_cds.fasta`: Extracted CDS nucleotide sequences
+- `7_exonerate_hits/{query_id}/hit_sequences/{sample_id}_exonerate_protein.fasta`: Extracted protein sequences
+- `7_exonerate_hits/{query_id}/hit_sequences/{sample_id}_exonerate_summary.tsv`: Per-sample summary of exon coordinates and lengths
+- `7_exonerate_hits/{query_id}/{query_id}_all_exonerate_cds.fasta`: Combined CDS FASTA across samples
+- `7_exonerate_hits/{query_id}/{query_id}_all_exonerate_protein.fasta`: Combined protein FASTA across samples
+- `7_exonerate_hits/{query_id}/{query_id}_all_exonerate_summary.tsv`: Combined per-query summary table
+- `7_exonerate_hits/exonerate_summary_merged.tsv`: Wide-format table merging Exonerate results across all queries and samples
+
+### 8 — Alignment outputs
+- `8_alignments/blast/{query_id}/{query_id}_all_blast_hits_aligned_sequences.fasta`: MAFFT alignment of all BLAST hits per query
+- `8_alignments/blast/{query_id}/{query_id}_all_blast_hits_mafft_alignment_log.txt`: MAFFT alignment log and statistics
+- `8_alignments/exonerate/{query_id}/{query_id}_all_exonerate_cds_aligned_sequences.fasta`: CDS alignment (if `--search_tool exonerate`)
+- `8_alignments/exonerate/{query_id}/{query_id}_all_exonerate_protein_aligned_sequences.fasta`: Protein alignment (if `--search_tool exonerate`)
+
+### 9 — Alignment phylogeny outputs (if using --search_tool exonerate --phylo_tree)
+- `9_phylogenies/exonerate/{query_id}/`: IQ-tree3 ML trees per query, one for CDS and one for protein:
+  - `{query_id}_cds_phylogeny.treefile`: Best ML tree (CDS) in Newick format
+  - `{query_id}_cds_phylogeny.contree`: Consensus tree with bootstrap support (if ≥4 unique taxa)
+  - `{query_id}_cds_phylogeny.iqtree`: Full IQ-tree report (model selection, tree statistics)
+  - `{query_id}_cds_phylogeny.log`: IQ-tree log
+  - `{query_id}_protein_phylogeny.treefile`: Best ML tree (protein) in Newick format
+  - `{query_id}_protein_phylogeny.contree`: Consensus tree with bootstrap support (if ≥4 unique taxa)
+  - `{query_id}_protein_phylogeny.iqtree`: Full IQ-tree report
+  - `{query_id}_protein_phylogeny.log`: IQ-tree log
+
+### 10 — BWA-mem2 mapping outputs (if using --reference_genome)
+- `10_bwa_mapping/{sample_id}_sorted.bam`: Sorted, MAPQ≥10 filtered BAM file
+- `10_bwa_mapping/{sample_id}_sorted.bam.bai`: BAM index
+- `10_bwa_mapping/{sample_id}_flagstat.json`: SAMtools flagstat report with mapping statistics
+- `10_bwa_mapping/bwa_mapping_summary.tsv`: Combined mapping statistics across all samples
+
+### 11 — Locus coverage outputs (if using --locus_coverage)
+- `11_locus_coverage/{query_id}/{query_id_safe}_ref_locus.tsv`: Best BLAST hit of the query on the reference genome (scaffold, coordinates)
+- `11_locus_coverage/{query_id}/{sample_id}_{query_id_safe}_locus_coverage.tsv`: Per-sample coverage table with columns:
+  - `scaffold`, `hit_start`, `hit_end`: BLAST hit coordinates on the reference
+  - `locus_start`, `locus_end`: Padded locus boundaries (±`--padding` bp)
+  - `locus_mean_depth`, `locus_median_depth`: Read depth at the padded locus (MQ ≥ 20)
+  - `genome_mean_depth`, `genome_sd_depth`: Mean and SD of per-base read depth across the whole genome (MQ ≥ 20)
+- `11_locus_coverage/{query_id}/{query_id_safe}_all_locus_coverage.tsv`: Combined table across all samples for this query
+
+### 12 — RepeatMasker outputs (if using --repeat_library)
+- `12_repeatmasker/{sample_id}_repeatmasker.gff`: TE annotations in GFF format
+- `12_repeatmasker/{sample_id}_repeatmasker.masked`: Soft-masked genome FASTA
+- `12_repeatmasker/{sample_id}_repeatmasker.tbl`: RepeatMasker summary table
+
+### 13 — Isoform / haplotype summary outputs (if using --search_tool exonerate)
+- `13_summary_data/{query_id}_isoforms.tsv`: Assigns consecutive CDS and protein isoform IDs to each sample based on unique sequences in the aligned FASTA files. Columns: `sample_id`, `cds_isoform`, `protein_isoform`.
 
 
 ## Description of pipeline steps
@@ -344,11 +357,11 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **Transposable element annotation with RepeatMasker** (optional, `--repeat_library`): All scaffolds (assembled or user-supplied) are annotated with RepeatMasker using the provided TE consensus library. Outputs include GFF annotations, soft-masked FASTA files, and per-sample summary tables.
 
-- **BUSCO gene phylogeny with IQ-tree3** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. IQ-tree3 infers a maximum-likelihood tree with per-gene partition model selection (`-m MFP`) and 1000 ultrafast bootstrap replicates (`-B 1000`, skipped when fewer than 4 unique taxa are present). Requires `--busco_lineage`.
+- **BUSCO gene phylogeny** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. By default, **RAxML-NG** infers the tree with per-gene GTR+G partitions and 200 bootstrap replicates. Switch to IQ-tree3 with `--busco_tree iqtree` (per-partition MFP model selection, 1000 ultrafast bootstrap). Bootstrap is skipped when fewer than 4 unique taxa are present. Output written to `5_busco_phylogeny/`. Requires `--busco_lineage`.
 
-- **Exonerate CDS/protein phylogenies with IQ-tree3** (optional, `--search_tool exonerate --phylo_tree`): Separate ML trees are built per query from the MAFFT-aligned CDS and protein sequences produced by Exonerate. Model selection (`-m MFP`) and ultrafast bootstrap (`-B 1000`) are applied when ≥4 unique sequences are present. Outputs written to `8_alignments/exonerate/{query_id}/`.
+- **Exonerate CDS/protein phylogenies with IQ-tree3** (optional, `--search_tool exonerate --phylo_tree`): Separate ML trees are built per query from the MAFFT-aligned CDS and protein sequences produced by Exonerate. Model selection (`-m MFP`) and ultrafast bootstrap (`-B 1000`) are applied when ≥4 unique sequences are present. Outputs written to `9_phylogenies/exonerate/{query_id}/`.
 
-- **Isoform / haplotype identification** (optional, `--search_tool exonerate`): After alignment, unique CDS and protein sequences are identified and assigned consecutive isoform numbers per query. The resulting table (`12_summary_data/{query_id}_isoforms.tsv`) allows quick assessment of allelic or strain-level diversity across samples.
+- **Isoform / haplotype identification** (optional, `--search_tool exonerate`): After alignment, unique CDS and protein sequences are identified and assigned consecutive isoform numbers per query. The resulting table (`13_summary_data/{query_id}_isoforms.tsv`) allows quick assessment of allelic or strain-level diversity across samples.
 
 
 ## Features to consider / bug fixes

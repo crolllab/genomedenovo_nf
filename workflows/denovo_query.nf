@@ -59,6 +59,20 @@ workflow denovo_query {
         exit 1, "ERROR: --phylo_tree requires --busco_lineage to be set."
     }
 
+    // When a pre-downloaded database is supplied, validate the lineage exists inside it
+    // before any work is submitted — this catches typos (e.g. odb12 vs odb10) immediately.
+    if (params.busco_lineage && params.busco_db_path) {
+        def lineage_dir = file("${params.busco_db_path}/lineages/${params.busco_lineage}")
+        if (!lineage_dir.exists()) {
+            def available = file("${params.busco_db_path}/lineages").exists()
+                ? file("${params.busco_db_path}/lineages").list()?.sort()?.join(', ') ?: 'none found'
+                : 'lineages/ directory not found'
+            exit 1, """ERROR: BUSCO lineage '${params.busco_lineage}' not found in '${params.busco_db_path}/lineages/'.
+  Available lineages: ${available}
+  Browse all lineages at: https://busco-data.ezlab.org/v5/data/lineages/"""
+        }
+    }
+
     if (params.phylo_tree && !(params.busco_tree in ['raxml-ng', 'iqtree'])) {
         exit 1, "ERROR: --busco_tree must be 'raxml-ng' (default) or 'iqtree'. Got: '${params.busco_tree}'."
     }
@@ -395,7 +409,7 @@ workflow denovo_query {
             busco_gene_ch = BUSCO.out.single_copy_dir
                 .flatMap { sample_id, scogs_dir ->
                     scogs_dir.listFiles()
-                        .findAll { it.name.endsWith('.fna') }
+                        .findAll { it.name.endsWith('.faa') }
                         .collect { f -> [f.baseName, f] }
                 }
                 .groupTuple()

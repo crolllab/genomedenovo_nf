@@ -1,5 +1,5 @@
 // Align single-copy BUSCO ortholog sequences across samples using MAFFT.
-// Input: one [gene_id, [fna_files_from_all_samples]] tuple per gene.
+// Input: one [gene_id, [faa_files_from_all_samples]] tuple per gene.
 // Output: a single aligned FASTA per gene for downstream supermatrix construction.
 process AlignBuscoGene {
     tag "MAFFT alignment"
@@ -7,7 +7,7 @@ process AlignBuscoGene {
     maxRetries 3
 
     input:
-    tuple val(gene_id), path(fna_files, stageAs: 'sample_??.fna')
+    tuple val(gene_id), path(faa_files, stageAs: 'sample_??.faa')
 
     output:
     path "${gene_id}_aligned.fasta", emit: alignment
@@ -18,9 +18,9 @@ process AlignBuscoGene {
 
     # Concatenate all per-sample sequences for this gene into one multi-FASTA
     # (stageAs gives each file a unique name to avoid staging collisions)
-    cat sample_*.fna > ${gene_id}_combined.fasta
+    cat sample_*.faa > ${gene_id}_combined.fasta
 
-    # Align with MAFFT auto strategy
-    mafft --auto --thread ${task.cpus} ${gene_id}_combined.fasta > ${gene_id}_aligned.fasta
+    # Align with MAFFT auto strategy (--amino for protein sequences)
+    mafft --amino --auto --thread ${task.cpus} ${gene_id}_combined.fasta > ${gene_id}_aligned.fasta
     """
 }

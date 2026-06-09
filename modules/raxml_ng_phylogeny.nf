@@ -24,8 +24,8 @@ process RaxmlNgPhylogeny {
         exit 0
     fi
 
-    # Convert NEXUS charset block to RAxML-NG partition format (GTR+G per gene)
-    awk '/charset/{gsub(/[;]/,""); split(\$0,a," = "); locus=a[1]; sub(/^ +charset +/,"",locus); print "GTR+G, " locus " = " a[2]}' \\
+    # Convert NEXUS charset block to RAxML-NG partition format (LG+G per gene — protein model)
+    awk '/charset/{gsub(/[;]/,""); split(\$0,a," = "); locus=a[1]; sub(/^ +charset +/,"",locus); print "LG+G, " locus " = " a[2]}' \\
         ${partitions} > partitions.raxml
 
     if [ "\$n_taxa" -ge 4 ]; then

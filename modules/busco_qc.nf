@@ -10,13 +10,29 @@ process DownloadBUSCODatabase {
     """
     set -euo pipefail
     busco --download ${params.busco_lineage} --download_path busco_downloads
+
+    # Verify the lineage was actually downloaded
+    lineage_dir="busco_downloads/lineages/${params.busco_lineage}"
+    if [ ! -d "\$lineage_dir" ]; then
+        echo "" >&2
+        echo "ERROR: BUSCO download failed — lineage '${params.busco_lineage}' was not found." >&2
+        echo "" >&2
+        echo "Available lineages in the BUSCO database:" >&2
+        ls busco_downloads/lineages/ 2>/dev/null | sort >&2 || echo "  (no lineages found)" >&2
+        echo "" >&2
+        echo "Common fungal lineages: fungi_odb10, ascomycota_odb10, basidiomycota_odb10," >&2
+        echo "  dothideomycetes_odb10, sordariomycetes_odb10" >&2
+        echo "Browse all lineages at: https://busco-data.ezlab.org/v5/data/lineages/" >&2
+        exit 1
+    fi
     """
 }
 
 // BUSCO process for genome completeness assessment
 process BUSCO {
     tag "BUSCO assessment"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    // Exit code 2 signals a configuration error (e.g. missing lineage) — skip retries immediately
+    errorStrategy { task.exitStatus == 2 ? 'finish' : (task.attempt <= 3 ? 'retry' : 'ignore') }
     maxRetries 3
     publishDir "${params.outdir}/4_busco", mode: 'copy', pattern: "*_busco"
 
@@ -33,6 +49,23 @@ process BUSCO {
     """
     set -euo pipefail
 
+    # Pre-check: verify the lineage exists before attempting to run BUSCO.
+    # Exit with code 2 (config error) to skip retries and surface a clear message.
+    lineage_dir="${db_dir}/lineages/${params.busco_lineage}"
+    if [ ! -d "\$lineage_dir" ]; then
+        echo "" >&2
+        echo "ERROR: BUSCO lineage '${params.busco_lineage}' not found in the database directory." >&2
+        echo "Expected path: \$lineage_dir" >&2
+        echo "" >&2
+        echo "Available lineages:" >&2
+        ls "${db_dir}/lineages/" 2>/dev/null | sort >&2 || echo "  (no lineages directory found in ${db_dir})" >&2
+        echo "" >&2
+        echo "Common fungal lineages: fungi_odb10, ascomycota_odb10, basidiomycota_odb10," >&2
+        echo "  dothideomycetes_odb10, sordariomycetes_odb10" >&2
+        echo "Browse all lineages at: https://busco-data.ezlab.org/v5/data/lineages/" >&2
+        exit 2
+    fi
+
     busco \\
         -m genome \\
         -i ${scaffolds} \\
@@ -43,14 +76,16 @@ process BUSCO {
 
     cp ${sample_id}_busco/short_summary.*.txt .
 
-    # Extract single-copy BUSCO nucleotide sequences for gene phylogenomics (--phylo_tree)
+    # Extract single-copy BUSCO protein sequences for gene phylogenomics (--phylo_tree).
+    # BUSCO v6 uses miniprot (default), which writes .faa protein sequences in
+    # single_copy_busco_sequences/ — no nucleotide .fna files are produced.
     mkdir -p ${sample_id}_scogs
-    for fna in ${sample_id}_busco/run_*/busco_sequences/single_copy_busco_sequences/*.fna; do
-        [ -f "\$fna" ] || continue
-        gene=\$(basename "\$fna" .fna)
+    for faa in ${sample_id}_busco/run_*/busco_sequences/single_copy_busco_sequences/*.faa; do
+        [ -f "\$faa" ] || continue
+        gene=\$(basename "\$faa" .faa)
         # Replace FASTA header with sample_id so sequences are identifiable after grouping
-        awk -v sid="${sample_id}" '/^>/{print ">" sid; next} {print}' "\$fna" \\
-            > ${sample_id}_scogs/\${gene}.fna
+        awk -v sid="${sample_id}" '/^>/{print ">" sid; next} {print}' "\$faa" \\
+            > ${sample_id}_scogs/\${gene}.faa
     done
     """
 }
