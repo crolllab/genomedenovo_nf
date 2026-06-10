@@ -77,6 +77,15 @@ workflow denovo_query {
         exit 1, "ERROR: --busco_tree must be 'raxml-ng' (default) or 'iqtree'. Got: '${params.busco_tree}'."
     }
 
+    if (params.phylo_tree && params.busco_subsample != 'all') {
+        if (!(params.busco_subsample instanceof Number) && !(params.busco_subsample ==~ /^[1-9][0-9]*/)) {
+            exit 1, "ERROR: --busco_subsample must be a positive integer or 'all'. Got: '${params.busco_subsample}'."
+        }
+        if ((params.busco_subsample as Integer) < 1) {
+            exit 1, "ERROR: --busco_subsample must be >= 1. Got: '${params.busco_subsample}'."
+        }
+    }
+
     if (!(params.search_tool in ['blast', 'exonerate'])) {
         exit 1, "ERROR: Unsupported --search_tool '${params.search_tool}'. Allowed values: blast, exonerate."
     }
@@ -414,6 +423,21 @@ workflow denovo_query {
                 }
                 .groupTuple()
                 .filter { gene_id, files -> files.size() >= 2 }
+
+            // Subsample genes for supermatrix if requested (default: 100)
+            if (params.busco_subsample != 'all') {
+                int n_genes = params.busco_subsample as Integer
+                busco_gene_ch = busco_gene_ch
+                    .toList()
+                    .flatMap { all_genes ->
+                        if (all_genes.size() <= n_genes) {
+                            return all_genes
+                        }
+                        def shuffled = new ArrayList(all_genes)
+                        Collections.shuffle(shuffled)
+                        return shuffled.subList(0, n_genes)
+                    }
+            }
 
             // Align each gene across samples
             AlignBuscoGene(busco_gene_ch)

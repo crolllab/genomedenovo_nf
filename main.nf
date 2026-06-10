@@ -16,6 +16,7 @@ params.reference_genome = ""   // Optional: reference genome FASTA for BWA-mem2 
 params.repeat_library   = ""   // Optional: TE consensus library FASTA for RepeatMasker (triggers repeatmasker module)
 params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny (requires --busco_lineage)
 params.busco_tree       = 'raxml-ng' // Phylogenetic tool for BUSCO supermatrix: 'raxml-ng' (default) or 'iqtree'
+params.busco_subsample  = 100   // Number of BUSCO genes to randomly subsample for the supermatrix (integer or 'all')
 params.locus_coverage   = false // Optional: compute read depth at query BLAST locus on reference (requires --blast_query and --reference_genome)
 params.slurm_queue      = ""    // Required when using -profile slurm: SLURM partition name (e.g. 'long', 'normal')
 
@@ -50,7 +51,7 @@ workflow {
      busco lineage  : ${params.busco_lineage ?: 'skipped'}
      reference      : ${params.reference_genome ?: 'none (bwa mapping skipped)'}
      repeat library : ${params.repeat_library ?: 'none (repeatmasker skipped)'}
-     phylo tree     : ${params.phylo_tree ? "enabled (${params.busco_tree == 'iqtree' ? 'IQ-tree' : 'RAxML-NG'} BUSCO gene phylogeny)" : 'skipped'}
+     phylo tree     : ${params.phylo_tree ? "enabled (${params.busco_tree == 'iqtree' ? 'IQ-tree' : 'RAxML-NG'} BUSCO gene phylogeny, genes subsampled: ${params.busco_subsample})" : 'skipped'}
      SLURM queue    : ${params.slurm_queue ?: '(not set — not using SLURM)'}
     """
 

@@ -3,7 +3,7 @@ process SRAresolve {
     cpus 1
     memory '4GB'
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
-    errorStrategy 'retry'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
 
     input:

@@ -1,8 +1,8 @@
 // Hybrid download for paired-end reads: tries ENA URL first, falls back to NCBI
 process SRAdownloadPE {
     tag "Download PE reads"
-    errorStrategy { task.attempt <= 4 ? 'retry' : 'ignore' }
-    maxRetries 4
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     
     input:
     tuple val(srr), val(url1), val(url2), val(source)
@@ -173,8 +173,8 @@ EOF
 // Hybrid download for single-end reads: tries ENA URL first, falls back to NCBI
 process SRAdownloadSE {
     tag "Download SE reads"
-    errorStrategy { task.attempt <= 4 ? 'retry' : 'ignore' }
-    maxRetries 4
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     
     input:
     tuple val(srr), val(url1), val(source)

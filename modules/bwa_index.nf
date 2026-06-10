@@ -1,7 +1,7 @@
 process bwaIndex {
     tag "BWA-mem2 index"
-    errorStrategy 'retry'
-    maxRetries 6
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
 
     input:
     path reference

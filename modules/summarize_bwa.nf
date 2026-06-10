@@ -1,6 +1,6 @@
 process SummarizeBwaStats {
     tag "Summarizing BWA mapping stats"
-    errorStrategy 'retry'
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
     maxRetries 3
     publishDir "${params.outdir}/10_bwa_mapping", mode: 'copy'
 

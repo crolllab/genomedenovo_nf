@@ -128,6 +128,13 @@ Available parameters
   --busco_tree iqtree     # alternative: IQ-tree3 with MFP model selection, 1000 UFboot
   ```
 
+- `--busco_subsample`: Optional. Number of BUSCO single-copy ortholog genes to randomly subsample when building the supermatrix for phylogeny inference (`--phylo_tree`). Default: `100`. Use `all` to include every shared single-copy gene without subsampling. Subsampling is performed after filtering for genes present in ≥2 samples, using a random draw (different genes may be selected each run unless you use `-resume`). Useful for reducing computation time with lineages that have thousands of BUSCOs (e.g. `fungi_odb10` has ~758, `bacteria_odb10` has ~124).
+  ```bash
+  --busco_subsample 100   # default: use 100 randomly selected genes
+  --busco_subsample 50    # use only 50 genes (faster, less signal)
+  --busco_subsample all   # use all shared single-copy genes
+  ```
+
 - `--padding`: Optional. Number of base pairs to extend extracted BLAST hit sequences on both sides. Default: `500`.
   - Example: `--padding 100` extracts hit region plus 100 bp upstream and 100 bp downstream
   - Useful for capturing regulatory regions, promoters, or getting more context around hits

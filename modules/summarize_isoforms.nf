@@ -10,8 +10,8 @@
 // One output file per query; columns: sample_id, cds_isoform, protein_isoform.
 process SummarizeIsoforms {
     tag "Isoform summary"
-    errorStrategy { task.attempt <= 2 ? 'retry' : 'ignore' }
-    maxRetries 2
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
     publishDir "${params.outdir}/13_summary_data", mode: 'copy'
 
     input:
