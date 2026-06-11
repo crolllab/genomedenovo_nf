@@ -23,7 +23,8 @@ process QUAST {
         --threads ${task.cpus} \\
         --no-plots \\
         --no-html \\
-        --no-icarus
+        --no-icarus \\
+        --min-contig 0
     
     # Copy and rename the report.tsv with sample ID to avoid name collisions
     cp "${safe_id}_quast/report.tsv" "${safe_id}_report.tsv"
