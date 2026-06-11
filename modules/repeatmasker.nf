@@ -22,8 +22,8 @@ process RepeatMask {
 
     RepeatMasker -lib $repeat_library -pa $task.cpus -gff input_scaffolds.fasta
 
-    mv input_scaffolds.fasta.out.gff ${sample_id}_repeatmasker.gff
-    mv input_scaffolds.fasta.masked  ${sample_id}_repeatmasker.masked
-    mv input_scaffolds.fasta.tbl     ${sample_id}_repeatmasker.tbl
+    mv input_scaffolds.fasta.out.gff "${sample_id}_repeatmasker.gff"
+    mv input_scaffolds.fasta.masked  "${sample_id}_repeatmasker.masked"
+    mv input_scaffolds.fasta.tbl     "${sample_id}_repeatmasker.tbl"
     """
 }

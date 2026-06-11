@@ -376,14 +376,6 @@ workflow denovo_query {
             }
     }
 
-    // Sanitize sample IDs: replace bash-unsafe characters (parentheses, spaces, slashes)
-    // with underscores so they are safe in filenames and shell scripts.
-    // Done after the rename step so sample_map lookups are not affected.
-    all_scaffolds_ch = all_scaffolds_ch
-        .map { sample_id, scaffolds ->
-            [sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_'), scaffolds]
-        }
-
     // ---------------------
     // RepeatMasker TE annotation (optional — triggered by --repeat_library)
     // ---------------------

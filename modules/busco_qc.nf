@@ -68,24 +68,24 @@ process BUSCO {
 
     busco \\
         -m genome \\
-        -i ${scaffolds} \\
+        -i "${scaffolds}" \\
         -l ${params.busco_lineage} \\
-        -o ${sample_id}_busco \\
+        -o "${sample_id}_busco" \\
         -c ${task.cpus} \\
         --offline --download_path ${db_dir}
 
-    cp ${sample_id}_busco/short_summary.*.txt .
+    cp "${sample_id}_busco"/short_summary.*.txt .
 
     # Extract single-copy BUSCO protein sequences for gene phylogenomics (--phylo_tree).
     # BUSCO v6 uses miniprot (default), which writes .faa protein sequences in
     # single_copy_busco_sequences/ — no nucleotide .fna files are produced.
-    mkdir -p ${sample_id}_scogs
-    for faa in ${sample_id}_busco/run_*/busco_sequences/single_copy_busco_sequences/*.faa; do
+    mkdir -p "${sample_id}_scogs"
+    for faa in "${sample_id}_busco"/run_*/busco_sequences/single_copy_busco_sequences/*.faa; do
         [ -f "\$faa" ] || continue
         gene=\$(basename "\$faa" .faa)
         # Replace FASTA header with sample_id so sequences are identifiable after grouping
         awk -v sid="${sample_id}" '/^>/{print ">" sid; next} {print}' "\$faa" \\
-            > ${sample_id}_scogs/\${gene}.faa
+            > "${sample_id}_scogs/\${gene}.faa"
     done
     """
 }

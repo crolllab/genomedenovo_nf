@@ -16,18 +16,18 @@ process QUAST {
     
     script:
     """
-    quast.py ${scaffolds_fasta} \
-        -o ${sample_id}_quast \
-        --threads ${task.cpus} \
-        --no-plots \
-        --no-html \
+    quast.py "${scaffolds_fasta}" \\
+        -o "${sample_id}_quast" \\
+        --threads ${task.cpus} \\
+        --no-plots \\
+        --no-html \\
         --no-icarus
     
     # Copy and rename the report.tsv with sample ID to avoid name collisions
-    cp ${sample_id}_quast/report.tsv ${sample_id}_report.tsv
+    cp "${sample_id}_quast/report.tsv" "${sample_id}_report.tsv"
     
     # Add sample ID column to the TSV for easier merging
-    sed -i "1s/Assembly/${sample_id}/" ${sample_id}_report.tsv
+    sed -i "1s|Assembly|${sample_id}|" "${sample_id}_report.tsv"
     """
 }
 
