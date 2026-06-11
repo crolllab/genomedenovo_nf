@@ -34,7 +34,7 @@ workflow {
      1. SRA resolve & download (optional)
      2. De novo assembly (SPAdes)
      3. Assembly QC (QUAST + BUSCO if --busco_lineage is set)
-    4. Sequence search: BLAST (always) + Exonerate CDS/protein (--search_tool exonerate)
+     4. Sequence search: BLAST (always) + Exonerate CDS/protein (--search_tool exonerate)
      5. Hit extraction & per-query FASTA
      6. Multiple sequence alignment (MAFFT)
    

@@ -346,10 +346,10 @@ workflow denovo_query {
     // Ensure both channels exist, even if empty
     if (params.reads || params.SRA_index) {
         if (params.scaffolds) {
-            // SPAdes scaffolds take priority; deduplicate by sample_id (groupTuple + take first)
+            // Mix SPAdes and local scaffolds; sample IDs are distinct so no deduplication needed.
+            // (Previously used groupTuple() here, which blocked all local scaffolds until
+            // every SPAdes job finished — causing QUAST/BLAST to never start on pre-assembled inputs.)
             all_scaffolds_ch = spades_scaffolds.mix(local_scaffolds_ch)
-                .groupTuple()
-                .map { sample_id, scaffolds_list -> [sample_id, scaffolds_list[0]] }
         } else {
             all_scaffolds_ch = spades_scaffolds
         }
