@@ -11,8 +11,8 @@ process QUAST {
     tuple val(sample_id), path(scaffolds_fasta)
     
     output:
-    tuple val(sample_id), path("${safe_id}_quast"), emit: report_dir
-    path "${safe_id}_report.tsv", emit: metrics
+    tuple val(sample_id), path("*_quast"),      emit: report_dir
+    path "*_report.tsv",                        emit: metrics
     
     script:
     // Use a filesystem-safe ID for directory/file names; original name is preserved as val(sample_id)

@@ -43,9 +43,9 @@ process BUSCO {
     path db_dir
 
     output:
-    tuple val(sample_id), path("${safe_id}_busco"), emit: result_dir
-    path "short_summary.*.txt",                      emit: summary
-    tuple val(sample_id), path("${safe_id}_scogs"), emit: single_copy_dir
+    tuple val(sample_id), path("*_busco"),  emit: result_dir
+    path "short_summary.*.txt",              emit: summary
+    tuple val(sample_id), path("*_scogs"),  emit: single_copy_dir
 
     script:
     // Use a filesystem-safe ID for directory/file names; original name is preserved as val(sample_id)

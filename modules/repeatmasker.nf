@@ -9,9 +9,9 @@ process RepeatMask {
     path repeat_library
 
     output:
-    tuple val(sample_id), path("${safe_id}_repeatmasker.gff"),    emit: gff
-    tuple val(sample_id), path("${safe_id}_repeatmasker.masked"), emit: masked
-    tuple val(sample_id), path("${safe_id}_repeatmasker.tbl"),    emit: summary
+    tuple val(sample_id), path("*_repeatmasker.gff"),    emit: gff
+    tuple val(sample_id), path("*_repeatmasker.masked"), emit: masked
+    tuple val(sample_id), path("*_repeatmasker.tbl"),    emit: summary
 
     script:
     // Use a filesystem-safe ID for file names; original name is preserved as val(sample_id)
