@@ -18,7 +18,7 @@ process QUAST {
     // Use a filesystem-safe ID for directory/file names; original name is preserved as val(sample_id)
     def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
     """
-    quast.py "${scaffolds_fasta}" \\
+    quast.py ${scaffolds_fasta} \\
         -o "${safe_id}_quast" \\
         --threads ${task.cpus} \\
         --no-plots \\

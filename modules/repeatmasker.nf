@@ -20,7 +20,7 @@ process RepeatMask {
     set -euo pipefail
 
     # Copy scaffold to a predictable filename so RepeatMasker output names are known
-    cp "$scaffolds" input_scaffolds.fasta
+    cp ${scaffolds} input_scaffolds.fasta
 
     RepeatMasker -lib "$repeat_library" -pa $task.cpus -gff input_scaffolds.fasta
 

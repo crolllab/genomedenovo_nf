@@ -72,7 +72,7 @@ process BUSCO {
 
     busco \\
         -m genome \\
-        -i "${scaffolds}" \\
+        -i ${scaffolds} \\
         -l ${params.busco_lineage} \\
         -o "${safe_id}_busco" \\
         -c ${task.cpus} \\
