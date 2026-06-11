@@ -11,23 +11,25 @@ process QUAST {
     tuple val(sample_id), path(scaffolds_fasta)
     
     output:
-    tuple val(sample_id), path("${sample_id}_quast"), emit: report_dir
-    path "${sample_id}_report.tsv", emit: metrics
+    tuple val(sample_id), path("${safe_id}_quast"), emit: report_dir
+    path "${safe_id}_report.tsv", emit: metrics
     
     script:
+    // Use a filesystem-safe ID for directory/file names; original name is preserved as val(sample_id)
+    def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
     """
     quast.py "${scaffolds_fasta}" \\
-        -o "${sample_id}_quast" \\
+        -o "${safe_id}_quast" \\
         --threads ${task.cpus} \\
         --no-plots \\
         --no-html \\
         --no-icarus
     
     # Copy and rename the report.tsv with sample ID to avoid name collisions
-    cp "${sample_id}_quast/report.tsv" "${sample_id}_report.tsv"
+    cp "${safe_id}_quast/report.tsv" "${safe_id}_report.tsv"
     
-    # Add sample ID column to the TSV for easier merging
-    sed -i "1s|Assembly|${sample_id}|" "${sample_id}_report.tsv"
+    # Add original sample ID column to the TSV for easier merging
+    sed -i "1s|Assembly|${sample_id}|" "${safe_id}_report.tsv"
     """
 }
 

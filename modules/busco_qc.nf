@@ -43,11 +43,13 @@ process BUSCO {
     path db_dir
 
     output:
-    tuple val(sample_id), path("${sample_id}_busco"), emit: result_dir
-    path "short_summary.*.txt",                        emit: summary
-    tuple val(sample_id), path("${sample_id}_scogs"), emit: single_copy_dir
+    tuple val(sample_id), path("${safe_id}_busco"), emit: result_dir
+    path "short_summary.*.txt",                      emit: summary
+    tuple val(sample_id), path("${safe_id}_scogs"), emit: single_copy_dir
 
     script:
+    // Use a filesystem-safe ID for directory/file names; original name is preserved as val(sample_id)
+    def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
     """
     set -euo pipefail
 
@@ -72,22 +74,22 @@ process BUSCO {
         -m genome \\
         -i "${scaffolds}" \\
         -l ${params.busco_lineage} \\
-        -o "${sample_id}_busco" \\
+        -o "${safe_id}_busco" \\
         -c ${task.cpus} \\
         --offline --download_path ${db_dir}
 
-    cp "${sample_id}_busco"/short_summary.*.txt .
+    cp "${safe_id}_busco"/short_summary.*.txt .
 
     # Extract single-copy BUSCO protein sequences for gene phylogenomics (--phylo_tree).
     # BUSCO v6 uses miniprot (default), which writes .faa protein sequences in
     # single_copy_busco_sequences/ — no nucleotide .fna files are produced.
-    mkdir -p "${sample_id}_scogs"
-    for faa in "${sample_id}_busco"/run_*/busco_sequences/single_copy_busco_sequences/*.faa; do
+    mkdir -p "${safe_id}_scogs"
+    for faa in "${safe_id}_busco"/run_*/busco_sequences/single_copy_busco_sequences/*.faa; do
         [ -f "\$faa" ] || continue
         gene=\$(basename "\$faa" .faa)
-        # Replace FASTA header with sample_id so sequences are identifiable after grouping
+        # Replace FASTA header with original sample_id so sequences are identifiable after grouping
         awk -v sid="${sample_id}" '/^>/{print ">" sid; next} {print}' "\$faa" \\
-            > "${sample_id}_scogs/\${gene}.faa"
+            > "${safe_id}_scogs/\${gene}.faa"
     done
     """
 }
