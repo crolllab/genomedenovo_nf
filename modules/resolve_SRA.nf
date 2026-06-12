@@ -81,15 +81,16 @@ process SRAresolve {
                         url2=\$(echo "\$ena_urls" | cut -d';' -f2)
                     fi
                     
-                    # Convert FTP to HTTP for better reliability
+                    # Convert FTP to HTTPS for better reliability
+                    # Note: http:// hangs on compute nodes; https:// works reliably
                     if [[ -n "\$url1" ]]; then
-                        url1="http://\${url1#ftp://}"
+                        url1="https://\${url1#ftp://}"
                         source="ENA"
                         echo "Found ENA URL for \$run_id" >&2
                     fi
                     
                     if [[ -n "\$url2" ]]; then
-                        url2="http://\${url2#ftp://}"
+                        url2="https://\${url2#ftp://}"
                     fi
                 fi
             fi

@@ -56,9 +56,13 @@ EOF
         if [[ -n "$url1" && -n "$url2" && "$source" == "ENA" ]]; then
             echo "Attempting ENA direct download..."
             
-            # BusyBox wget: --timeout in seconds, -t for tries
-            if wget --timeout=300 -t 3 -q -O ${srr}_1.fastq.gz "$url1" && \
-               wget --timeout=300 -t 3 -q -O ${srr}_2.fastq.gz "$url2"; then
+            # Ensure HTTPS is used (http:// hangs on compute nodes; https:// is reliable)
+            dl_url1=\$(echo "$url1" | sed 's|^http://|https://|')
+            dl_url2=\$(echo "$url2" | sed 's|^http://|https://|')
+            
+            # BusyBox wget: -T for network read timeout (seconds), -t for retries
+            if wget -T 300 -t 3 -q -O ${srr}_1.fastq.gz "\$dl_url1" && \
+               wget -T 300 -t 3 -q -O ${srr}_2.fastq.gz "\$dl_url2"; then
                 # Verify files are not empty
                 if [ -s "${srr}_1.fastq.gz" ] && [ -s "${srr}_2.fastq.gz" ]; then
                     # Validate gzip integrity
@@ -228,8 +232,11 @@ EOF
         if [[ -n "$url1" && "$source" == "ENA" ]]; then
             echo "Attempting ENA direct download..."
             
-            # BusyBox wget: --timeout in seconds, -t for tries
-            if wget --timeout=300 -t 3 -q -O ${srr}.fastq.gz "$url1"; then
+            # Ensure HTTPS is used (http:// hangs on compute nodes; https:// is reliable)
+            dl_url1=\$(echo "$url1" | sed 's|^http://|https://|')
+            
+            # BusyBox wget: -T for network read timeout (seconds), -t for retries
+            if wget -T 300 -t 3 -q -O ${srr}.fastq.gz "\$dl_url1"; then
                 # Verify file is not empty
                 if [ -s "${srr}.fastq.gz" ]; then
                     # Validate gzip integrity
