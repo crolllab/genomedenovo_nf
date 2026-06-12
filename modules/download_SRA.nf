@@ -291,7 +291,7 @@ EOF
                         else
                             echo "⚠ NCBI file empty (attempt \$attempt)"
                         fi
-                    if [ -f "${srr}_1.fastq" ]; then
+                    elif [ -f "${srr}_1.fastq" ]; then
                         echo "Found ${srr}_1.fastq, renaming to ${srr}.fastq"
                         mv ${srr}_1.fastq ${srr}.fastq
                         rm -f ${srr}_2.fastq 2>/dev/null || true

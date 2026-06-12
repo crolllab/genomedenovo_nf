@@ -45,7 +45,9 @@ process SRAresolve {
             echo "Processing \$run_id with layout '\$layout'" >&2
             
             # Try to get ENA FTP URLs (provides direct FASTQ links)
-            ena_response=\$(wget -qO- "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=\$run_id&result=read_run&fields=fastq_ftp" | tail -n +2)
+            # Request fastq_ftp, fastq_aspera, and submitted_ftp; some accessions only populate
+            # submitted_ftp (e.g. runs with non-standard naming).
+            ena_response=\$(wget -qO- "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=\$run_id&result=read_run&fields=fastq_ftp,fastq_aspera,submitted_ftp" | tail -n +2)
             
             url1=""
             url2=""
@@ -53,9 +55,18 @@ process SRAresolve {
             
             if [[ -n "\$ena_response" ]]; then
                 # ENA provides semicolon-separated URLs for PE reads
+                # Prefer fastq_ftp (col 2), fall back to fastq_aspera (col 3), then submitted_ftp (col 4)
                 ena_urls=\$(echo "\$ena_response" | cut -f2)
+                if [[ -z "\$ena_urls" ]]; then
+                    ena_urls=\$(echo "\$ena_response" | cut -f3)
+                    [[ -n "\$ena_urls" ]] && echo "Using fastq_aspera fallback for \$run_id" >&2
+                fi
+                if [[ -z "\$ena_urls" ]]; then
+                    ena_urls=\$(echo "\$ena_response" | cut -f4)
+                    [[ -n "\$ena_urls" ]] && echo "Using submitted_ftp fallback for \$run_id" >&2
+                fi
                 
-                if [[ -n "\$ena_urls" && "\$ena_urls" != "fastq_ftp" ]]; then
+                if [[ -n "\$ena_urls" ]]; then
                     # Count how many files ENA returned
                     url_count=\$(echo "\$ena_urls" | tr ';' '\n' | wc -l)
                     
