@@ -70,9 +70,13 @@ process BUSCO {
         exit 2
     fi
 
+    # Copy input to a safe filename — tools like bbtools (called internally by BUSCO) run
+    # filenames through bash eval, which breaks on parentheses and other special characters.
+    cp ${scaffolds} "${safe_id}_input.fasta"
+
     busco \\
         -m genome \\
-        -i ${scaffolds} \\
+        -i "${safe_id}_input.fasta" \\
         -l ${params.busco_lineage} \\
         -o "${safe_id}_busco" \\
         -c ${task.cpus} \\
