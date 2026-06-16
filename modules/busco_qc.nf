@@ -110,11 +110,11 @@ process BUSCO {
             -exec rm -rf {} +
 
         find "${safe_id}_busco" -type d \
-            \( -name hmmer_output \
+            \\( -name hmmer_output \
                -o -name miniprot_output \
                -o -name busco_sequences \
                -o -name tmp \
-               -o -name .bbtools_output \) \
+               -o -name .bbtools_output \\) \
             -exec rm -rf {} +
 
         find "${safe_id}_busco" -type f \
