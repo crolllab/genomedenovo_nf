@@ -50,6 +50,7 @@ process BUSCO {
     script:
     // Use a filesystem-safe ID for directory/file names; original name is preserved as val(sample_id)
     def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
+    def keep_full_busco = (params.keep_full_busco ?: false).toString().toLowerCase() in ['true', '1', 'yes', 'y']
     """
     set -euo pipefail
 
@@ -95,6 +96,31 @@ process BUSCO {
         awk -v sid="${sample_id}" '/^>/{print ">" sid; next} {print}' "\$faa" \\
             > "${safe_id}_scogs/\${gene}.faa"
     done
+
+    # Keep only outputs required for downstream pipeline steps unless explicitly disabled.
+    # Required outputs are:
+    # 1) short_summary.*.txt (used by SummarizeBuscoMetrics)
+    # 2) ${safe_id}_scogs/*.faa (used by BUSCO phylogeny workflow)
+    if [ "${keep_full_busco}" != "true" ]; then
+        # Remove the largest BUSCO intermediates inside the published BUSCO directory.
+        # This keeps the per-sample BUSCO folder lightweight while preserving summaries.
+        find "${safe_id}_busco" -mindepth 1 -maxdepth 1 -type d \
+            ! -name logs \
+            ! -name run_* \
+            -exec rm -rf {} +
+
+        find "${safe_id}_busco" -type d \
+            \( -name hmmer_output \
+               -o -name miniprot_output \
+               -o -name busco_sequences \
+               -o -name tmp \
+               -o -name .bbtools_output \) \
+            -exec rm -rf {} +
+
+        find "${safe_id}_busco" -type f \
+            ! -name 'short_summary.*.txt' \
+            -delete
+    fi
     """
 }
 

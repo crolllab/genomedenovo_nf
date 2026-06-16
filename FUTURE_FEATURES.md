@@ -1,5 +1,7 @@
 # Future Features
 
+- **BUSCO**: Minimize storage use by deleting intermediate files on the fly.
+
 ## Implemented (testing required)
 
 - **RepeatMasker**: Repeat masking of assemblies using a user-provided consensus FASTA file (e.g., a custom repeat library).

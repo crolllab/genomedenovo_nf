@@ -12,6 +12,7 @@ params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'exo
 params.skip_quast = false      // Set to true to skip QUAST assembly QC
 params.busco_lineage = ""      // BUSCO lineage (e.g. dothideomycetes_odb10). If empty, BUSCO is skipped.
 params.busco_db_path = ""      // Optional: path to pre-downloaded BUSCO databases (enables offline mode)
+params.keep_full_busco = false // Optional: keep full BUSCO output directories (default: prune temporary BUSCO files)
 params.reference_genome = ""   // Optional: reference genome FASTA for BWA-mem2 mapping (triggers bwa_mapping module)
 params.repeat_library   = ""   // Optional: TE consensus library FASTA for RepeatMasker (triggers repeatmasker module)
 params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylogeny (requires --busco_lineage)
@@ -49,6 +50,7 @@ workflow {
      padding        : ${params.padding} bp
      sample map     : ${params.SRR_sample_map ?: 'none'}
      busco lineage  : ${params.busco_lineage ?: 'skipped'}
+    keep full busco: ${params.keep_full_busco ? 'yes' : 'no (default compact outputs)'}
      reference      : ${params.reference_genome ?: 'none (bwa mapping skipped)'}
      repeat library : ${params.repeat_library ?: 'none (repeatmasker skipped)'}
      phylo tree     : ${params.phylo_tree ? "enabled (${params.busco_tree == 'iqtree' ? 'IQ-tree' : 'RAxML-NG'} BUSCO gene phylogeny, genes subsampled: ${params.busco_subsample})" : 'skipped'}

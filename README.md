@@ -101,6 +101,11 @@ Available parameters
   busco --download dothideomycetes_odb10 --download_path /path/to/busco_db
   ```
 
+- `--keep_full_busco`: Optional flag. By default, BUSCO output is compacted after each sample finishes to reduce disk usage: only `short_summary.*.txt` (for BUSCO metrics aggregation) and extracted single-copy ortholog protein FASTA files used for BUSCO phylogeny are retained. Set this flag to keep the full BUSCO directory structure (all intermediate and log files).
+  ```bash
+  --keep_full_busco
+  ```
+
 - `--reference_genome`: Optional. Path to a reference genome FASTA file. When provided, trimmed reads are mapped to this reference using **BWA-mem2** and the resulting BAM files are sorted and indexed with SAMtools. Useful for estimating mapping rates and coverage uniformity alongside the de novo assemblies. Only available when reads are supplied via `--reads` or `--SRA_index`.
   ```bash
   --reference_genome /path/to/reference.fasta
@@ -259,9 +264,11 @@ The pipeline will produce the following output files in the specified `--outdir`
 - `3_quast/{sample_id}_quast/`: Per-sample QUAST report directory
 
 ### 4 — BUSCO outputs (if using --busco_lineage)
-- `4_busco/{sample_id}_busco/`: Full BUSCO result directory per sample
+- `4_busco/{sample_id}_busco/`: Per-sample BUSCO result directory (compact by default; full when `--keep_full_busco` is set)
 - `4_busco/short_summary.*.{sample_id}_busco.txt`: BUSCO short summary per sample
 - `4_busco/busco_summary_metrics.tsv`: Combined table with completeness metrics for all samples (Complete %, Single-copy %, Duplicated %, Fragmented %, Missing %)
+
+Default compact mode removes large temporary/intermediate BUSCO outputs (for example `run_*/hmmer_output`, `run_*/miniprot_output`, `run_*/busco_sequences`, and temporary files) after extracting required downstream artifacts.
 
 ### 5 — BUSCO gene phylogeny outputs (if using --phylo_tree and --busco_lineage)
 - `5_busco_phylogeny/`: Contents depend on `--busco_tree`:
