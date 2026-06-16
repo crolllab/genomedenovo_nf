@@ -1,5 +1,5 @@
-process RepeatMask {
-    tag "RepeatMasker"
+process RepeatMasker {
+    tag "Repeat masking assembly"
     errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
     maxRetries 6
     publishDir "${params.outdir}/12_repeatmasker", mode: 'copy'

@@ -381,8 +381,8 @@ workflow denovo_query {
     // ---------------------
     if (params.repeat_library) {
         repeat_lib_ch = Channel.value(file(params.repeat_library))
-        RepeatMask(all_scaffolds_ch, repeat_lib_ch)
-        repeat_done = RepeatMask.out.gff.map { id, gff -> gff }.collect()
+        RepeatMasker(all_scaffolds_ch, repeat_lib_ch)
+        repeat_done = RepeatMasker.out.gff.map { id, gff -> gff }.collect()
     }
 
     // ---------------------
