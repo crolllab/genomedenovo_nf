@@ -129,8 +129,8 @@ process SplitQuerySequences {
 // BLAST process definition - supports both blastn (nucleotide) and tblastn (protein)
 process BLASTsearch {
     tag "BLAST search"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     memory '4GB'
     cpus 4
     publishDir { "${params.outdir}/6_blast_hits/${query_id}/blast_results" }, mode: 'copy'

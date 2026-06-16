@@ -5,8 +5,8 @@
 //         in 9_phylogenies/<blast|exonerate>/<query_id>/.
 process IQtreeAlignmentPhylogeny {
     tag "IQ-tree alignment phylogeny"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     publishDir { "${params.outdir}/9_phylogenies/${seq_type == 'blast' ? 'blast' : 'exonerate'}/${query_id}" }, mode: 'copy'
 
     input:
@@ -58,8 +58,8 @@ process IQtreeAlignmentPhylogeny {
 // Output: IQ-tree result files including the treefile.
 process IQtreePhylogeny {
     tag "IQ-tree BUSCO phylogeny"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     publishDir "${params.outdir}/5_busco_phylogeny", mode: 'copy'
 
     input:

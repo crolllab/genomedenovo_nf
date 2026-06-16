@@ -3,8 +3,8 @@
 // Output: RAxML-NG result files including the best tree and support values.
 process RaxmlNgPhylogeny {
     tag "RAxML-NG BUSCO phylogeny"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     publishDir "${params.outdir}/5_busco_phylogeny", mode: 'copy'
 
     input:

@@ -50,7 +50,7 @@ workflow {
      padding        : ${params.padding} bp
      sample map     : ${params.SRR_sample_map ?: 'none'}
      busco lineage  : ${params.busco_lineage ?: 'skipped'}
-    keep full busco: ${params.keep_full_busco ? 'yes' : 'no (default compact outputs)'}
+     keep full busco: ${params.keep_full_busco ? 'yes' : 'no (default compact outputs)'}
      reference      : ${params.reference_genome ?: 'none (bwa mapping skipped)'}
      repeat library : ${params.repeat_library ?: 'none (repeatmasker skipped)'}
      phylo tree     : ${params.phylo_tree ? "enabled (${params.busco_tree == 'iqtree' ? 'IQ-tree' : 'RAxML-NG'} BUSCO gene phylogeny, genes subsampled: ${params.busco_subsample})" : 'skipped'}

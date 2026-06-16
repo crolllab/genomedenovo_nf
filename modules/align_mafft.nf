@@ -1,8 +1,8 @@
 // Process to perform multiple sequence alignment on combined BLAST hit sequences using MAFFT
 process AlignMAFFT {
     tag "MAFFT alignment"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     publishDir { "${params.outdir}/8_alignments/${tool_type}/${query_id}" }, mode: 'copy'
     
     input:

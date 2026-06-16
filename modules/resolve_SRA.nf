@@ -3,8 +3,8 @@ process SRAresolve {
     cpus 1
     memory '4GB'
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
 
     input:
     path accessions_file

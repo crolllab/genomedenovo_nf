@@ -1,7 +1,7 @@
 process bwaMap {
     tag "BWA-mem2 mapping"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
 
     input:
     path reference

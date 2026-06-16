@@ -1,8 +1,8 @@
 // Fixed SPAdes process for specific file outputs
 process SPAdes {
     tag "SPAdes PE assembly"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
 
     publishDir "${params.outdir}/2_assemblies", mode: 'copy', pattern: "*/contigs.fasta"
     publishDir "${params.outdir}/2_assemblies", mode: 'copy', pattern: "*/scaffolds.fasta"
@@ -58,8 +58,8 @@ process SPAdes {
 // SPAdes process for single-end reads
 process SPAdesSE {
     tag "SPAdes SE assembly"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
 
     publishDir "${params.outdir}/2_assemblies", mode: 'copy', pattern: "*/contigs.fasta"
     publishDir "${params.outdir}/2_assemblies", mode: 'copy', pattern: "*/scaffolds.fasta"

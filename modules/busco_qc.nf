@@ -34,8 +34,8 @@ process BUSCO {
     // Exit code 2 from our pre-check signals a configuration error (e.g. missing lineage) — skip retries.
     // NOTE: bash syntax errors also produce exit code 2, so we use 'ignore' rather than 'finish'
     // to avoid aborting the entire pipeline when a single sample has a problematic name.
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     publishDir "${params.outdir}/4_busco", mode: 'copy', pattern: "*_busco"
 
     input:

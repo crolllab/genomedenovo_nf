@@ -1,7 +1,7 @@
 process PipelineStatistics {
     tag "Generating pipeline stats"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     
     publishDir params.outdir, mode: 'copy'
     

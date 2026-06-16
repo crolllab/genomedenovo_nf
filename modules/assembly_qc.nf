@@ -1,8 +1,8 @@
 // QUAST process for assembly quality assessment
 process QUAST {
     tag "QUAST assessment"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     memory '4GB'
     cpus 1
     publishDir "${params.outdir}/3_quast", mode: 'copy', pattern: "*_quast"

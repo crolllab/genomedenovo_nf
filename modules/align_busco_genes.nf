@@ -3,8 +3,8 @@
 // Output: a single aligned FASTA per gene for downstream supermatrix construction.
 process AlignBuscoGene {
     tag "MAFFT alignment"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
 
     input:
     tuple val(gene_id), path(faa_files, stageAs: 'sample_??.faa')

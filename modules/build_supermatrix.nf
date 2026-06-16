@@ -2,8 +2,8 @@
 // NEXUS partition file for IQ-tree. Runs the Python helper script.
 process BuildSupermatrix {
     tag "Build BUSCO supermatrix"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
 
     input:
     path aligned_genes

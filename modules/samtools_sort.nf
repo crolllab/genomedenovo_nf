@@ -1,7 +1,7 @@
 process samtoolsSort {
     tag "Sort/index BAM"
-    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
-    maxRetries 3
+    errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
+    maxRetries 6
     publishDir "${params.outdir}/10_bwa_mapping", mode: 'copy'
 
     input:
