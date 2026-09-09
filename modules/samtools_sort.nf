@@ -12,15 +12,18 @@ process samtoolsSort {
     path "${sample_id}_flagstat.json", emit: report
 
     script:
+    // Output names are quoted so sample IDs containing parentheses or spaces
+    // are handled correctly. $sample_sam is escaped by Nextflow and stays bare.
+    //
+    // The upstream .sam is deliberately NOT deleted here: resolving the staged
+    // symlink and removing its target destroys the bwaMap task's cached output,
+    // which breaks -resume and any later retry of this task. Reclaim space with
+    // `nextflow clean` once the run has completed successfully.
     """
     set -euo pipefail
 
-    samtools flagstat -@ ${task.cpus} -O json $sample_sam > ${sample_id}_flagstat.json
-    samtools view -@ ${task.cpus} -Sb -q 10 $sample_sam | samtools sort -@ ${task.cpus} -o ${sample_id}_sorted.bam -
-    samtools index -@ ${task.cpus} ${sample_id}_sorted.bam
-
-    # Delete the SAM file after successful BAM conversion (resolve symlink first)
-    sam_target=\$(readlink -f "$sample_sam")
-    [ -n "\$sam_target" ] && [ -f "\$sam_target" ] && rm "\$sam_target" || true
+    samtools flagstat -@ ${task.cpus} -O json $sample_sam > "${sample_id}_flagstat.json"
+    samtools view -@ ${task.cpus} -Sb -q 10 $sample_sam | samtools sort -@ ${task.cpus} -o "${sample_id}_sorted.bam" -
+    samtools index -@ ${task.cpus} "${sample_id}_sorted.bam"
     """
 }

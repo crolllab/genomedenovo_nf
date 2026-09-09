@@ -37,21 +37,10 @@ process SPAdes {
         rm -rf ${sample_id}/tmp/
     fi
     
-    # Only delete input files if they were downloaded from SRA
-    # User-provided files (source='local') are preserved
-    if [ "${source}" = "SRA" ]; then
-        echo "Deleting SRA-downloaded files after assembly..."
-        for file in "${read1}" "${read2}"; do
-            if [ -L "\$file" ]; then
-                target=\$(readlink -f "\$file" 2>/dev/null)
-                [ -n "\$target" ] && [ -f "\$target" ] && rm "\$target" || true
-            elif [ -f "\$file" ]; then
-                rm "\$file" || true
-            fi
-        done
-    else
-        echo "Preserving user-provided files (source: ${source})"
-    fi
+    # The staged input reads are deliberately NOT deleted here: resolving the
+    # symlink and removing its target destroys the upstream download task's
+    # cached output, which breaks -resume and any later retry of this task.
+    # Reclaim space with `nextflow clean` after a successful run.
     """
 }
 
@@ -93,19 +82,10 @@ process SPAdesSE {
         rm -rf ${sample_id}/tmp/
     fi
     
-    # Only delete input file if it was downloaded from SRA
-    # User-provided files (source='local') are preserved
-    if [ "${source}" = "SRA" ]; then
-        echo "Deleting SRA-downloaded file after assembly..."
-        if [ -L "${read}" ]; then
-            target=\$(readlink -f "${read}" 2>/dev/null)
-            [ -n "\$target" ] && [ -f "\$target" ] && rm "\$target" || true
-        elif [ -f "${read}" ]; then
-            rm "${read}" || true
-        fi
-    else
-        echo "Preserving user-provided file (source: ${source})"
-    fi
+    # The staged input read is deliberately NOT deleted here: resolving the
+    # symlink and removing its target destroys the upstream download task's
+    # cached output, which breaks -resume and any later retry of this task.
+    # Reclaim space with `nextflow clean` after a successful run.
     """
 }
 
