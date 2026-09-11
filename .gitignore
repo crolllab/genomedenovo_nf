@@ -2,8 +2,5 @@
 singularity
 nf_output
 .nextflow*
-run.sh
 example/output*/
-example2
 work
-
