@@ -76,7 +76,7 @@ Available parameters
 
 - `--search_tool`: Optional. Choose the sequence search tool. Default: `blast`.
   - `blast` — BLAST search only (blastn for nucleotide queries, tblastn for protein queries).
-  - `exonerate` — BLAST search plus **Exonerate** spliced alignment (`protein2genome` for protein queries, `est2genome` for nucleotide queries). Exonerate resolves exon boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool exonerate`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA.
+  - `exonerate` — BLAST search plus **Exonerate** spliced alignment (`protein2genome` for protein queries, `coding2genome` for nucleotide CDS queries). Exonerate resolves exon boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool exonerate`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA.
 
 - `--skip_quast`: Optional flag. When set, skips the QUAST assembly quality assessment step. Useful when running on pre-assembled scaffolds that have already been assessed, or to speed up BLAST/Exonerate-only runs.
 
@@ -347,6 +347,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 ### 13 — Isoform / haplotype summary outputs (if using --search_tool exonerate)
 - `13_summary_data/{query_id}_isoforms.tsv`: Assigns consecutive CDS and protein isoform IDs to each sample based on unique sequences in the aligned FASTA files. Columns: `sample_id`, `cds_isoform`, `protein_isoform`.
+- `13_summary_data/{query_id}_cds_isoforms.fasta` / `{query_id}_protein_isoforms.fasta`: One ungapped sequence per unique CDS / protein isoform, named `cds_isoform_N` / `protein_isoform_N` to match the TSV; the header also gives the number of samples carrying it (`n_samples=`).
 
 
 ## Description of pipeline steps
@@ -359,7 +360,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLAST (automatically selects blastn for nucleotide queries or tblastn for protein queries). The top hits are extracted with optional flanking sequence padding. Combined FASTA files include the original query sequence first, followed by all BLAST hits, making them ready for downstream analysis like multiple sequence alignment.
 
-- **Exonerate spliced alignment and CDS/protein extraction** (optional, `--search_tool exonerate`): BLAST hit regions are used as anchors for Exonerate (`protein2genome` or `est2genome`) to refine exon boundaries and recover coding sequences per sample. Raw target-side GFF output is parsed into CDS nucleotide FASTA, translated protein FASTA, and per-sample/per-query summary tables.
+- **Exonerate spliced alignment and CDS/protein extraction** (optional, `--search_tool exonerate`): BLAST hit regions are used as anchors for Exonerate (`protein2genome` or `coding2genome`) to refine exon boundaries and recover coding sequences per sample. Raw target-side GFF output is parsed into CDS nucleotide FASTA, translated protein FASTA, and per-sample/per-query summary tables.
 
 - **Multiple sequence alignment with MAFFT**: The extracted BLAST hit sequences from each sample are aligned using MAFFT with `--auto` and `--adjustdirection` options. This produces both per-sample alignments and a combined alignment of all sequences from all samples.
 

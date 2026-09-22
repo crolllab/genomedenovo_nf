@@ -174,6 +174,7 @@ def gff2_to_gff3_lines(gff_path):
     gff3_lines = []
     current_id = None
     current_strand = None
+    n_genes = 0
 
     with open(gff_path) as fh:
         for raw in fh:
@@ -189,7 +190,11 @@ def gff2_to_gff3_lines(gff_path):
                 gff2_attrs = _parse_gff2_attrs(attr_col)
                 gid = gff2_attrs.get('gene_id', '')
                 seq = gff2_attrs.get('sequence', '')
+                # Exonerate restarts gene_id at 1 for every alignment, so add a
+                # running index to keep separate alignments on one target apart.
+                n_genes += 1
                 current_id = f'{seqid}_gene{gid}_{seq}' if seq else f'{seqid}_gene{gid}'
+                current_id = f'{current_id}_{n_genes}'
                 current_strand = strand
                 gff3_lines.append(
                     f'{seqid}\t{source}\tgene\t{start}\t{end}\t{score}\t{strand}\t.\t'
@@ -224,6 +229,7 @@ def parse_gff3_cds(gff_path):
     cds_by_parent   = defaultdict(list)
     parent_strand   = {}
     parent_scaffold = {}
+    gene_span       = {}
 
     for line in gff2_to_gff3_lines(gff_path):
         if line.startswith('#') or not line.strip():
@@ -231,7 +237,11 @@ def parse_gff3_cds(gff_path):
         parts = line.rstrip('\n').split('\t')
         if len(parts) < 9:
             continue
-        seqid, _, feat, start, end, _, strand, _, attrs = parts
+        seqid, _, feat, start, end, score, strand, _, attrs = parts
+        if feat == 'gene':
+            gid = attrs.split('=', 1)[1]
+            gene_span[gid] = (seqid, int(start), int(end), float(score) if score != '.' else 0.0)
+            continue
         if feat.upper() != 'CDS':
             continue
 
@@ -247,7 +257,29 @@ def parse_gff3_cds(gff_path):
             parent_strand[parent]   = strand
             parent_scaffold[parent] = seqid
 
+    drop_overlapping_models(cds_by_parent, gene_span)
     return cds_by_parent, parent_strand, parent_scaffold
+
+
+def drop_overlapping_models(cds_by_parent, gene_span):
+    """Keep only the highest-scoring gene model among models that overlap on
+    the same target sequence.
+
+    coding2genome (CDS queries) also reports a weaker alignment of the
+    reverse-complemented query over the same locus; without this filter it
+    would be emitted as a second, spurious CDS/protein for the sample.
+    """
+    kept = []
+    for gid in sorted(cds_by_parent, key=lambda g: -gene_span.get(g, ('', 0, 0, 0.0))[3]):
+        if gid not in gene_span:
+            kept.append(gid)
+            continue
+        seqid, start, end, _ = gene_span[gid]
+        if any(gene_span[k][0] == seqid and start <= gene_span[k][2] and gene_span[k][1] <= end
+               for k in kept if k in gene_span):
+            del cds_by_parent[gid]
+        else:
+            kept.append(gid)
 
 
 # ---------------------------------------------------------------------------

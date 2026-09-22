@@ -104,7 +104,7 @@ workflow denovo_query {
 
     // When Exonerate is requested with a nucleotide query, verify the query is CDS
     // (no stop codons). If stop codons are found the query is likely genomic
-    // DNA with introns, which Exonerate cannot handle correctly with est2genome.
+    // DNA with introns, which Exonerate cannot handle correctly with coding2genome.
     if (params.search_tool == 'exonerate' && params.blast_query) {
         def qfile = file(params.blast_query)
         if (qfile.exists()) {
@@ -128,7 +128,7 @@ workflow denovo_query {
                     }
                     if (hasStop) {
                                                 exit 1, """ERROR: --search_tool exonerate requires a CDS or protein query, but the nucleotide query contains stop codons in at least one reading frame.
-    This suggests the query is genomic DNA with introns, which Exonerate cannot use correctly with the est2genome model.
+    This suggests the query is genomic DNA with introns, which Exonerate cannot use correctly with the coding2genome model.
   Please provide either:
     - A mature CDS sequence (spliced, no introns, no in-frame stop codons)
     - A protein sequence (amino acid FASTA)

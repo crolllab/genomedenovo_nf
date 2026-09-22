@@ -5,9 +5,11 @@
 //   tuple val(query_id), path(cds_alignment), path(prot_alignment)
 //
 // Output:
-//   path "*_isoforms.tsv"   published to 12_summary_data/
+//   path "*_isoforms.tsv"            published to 13_summary_data/
+//   path "*_cds_isoforms.fasta"      one ungapped sequence per unique CDS isoform
+//   path "*_protein_isoforms.fasta"  one ungapped sequence per unique protein isoform
 //
-// One output file per query; columns: sample_id, cds_isoform, protein_isoform.
+// TSV columns: sample_id, cds_isoform, protein_isoform.
 process SummarizeIsoforms {
     tag "Isoform summary"
     errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
@@ -19,6 +21,7 @@ process SummarizeIsoforms {
 
     output:
     path("*_isoforms.tsv"), emit: isoforms_tsv
+    path("*_isoforms.fasta"), emit: isoforms_fasta
 
     script:
     """

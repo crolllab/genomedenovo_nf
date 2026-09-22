@@ -145,6 +145,9 @@ process BLASTsearch {
     script:
     // Choose BLAST tool based on sequence type
     def blast_tool = (seq_type == "protein") ? "tblastn" : "blastn"
+    // blastn defaults to megablast (word size 28), which misses short or divergent
+    // exons of CDS queries; use the more sensitive blastn task instead.
+    def blast_task = (seq_type == "protein") ? "" : "-task blastn"
     // Sanitise sample_id for safe use as a shell filename (replace chars unsafe in unquoted contexts)
     def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
     """
@@ -154,7 +157,7 @@ process BLASTsearch {
     # Run appropriate BLAST search based on query type
     echo "Running ${blast_tool} for ${seq_type} query: ${query_id}"
 
-    ${blast_tool} -query ${query_fasta} \\
+    ${blast_tool} ${blast_task} -query ${query_fasta} \\
            -db ${safe_id}_db \\
            -out ${safe_id}_blast_results.tsv \\
            -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore" \\

@@ -1,4 +1,4 @@
-// Exonerate spliced alignment of a protein or cDNA query against a
+// Exonerate spliced alignment of a protein or CDS query against a
 // de novo assembled genome. Handles multi-exon eukaryotic gene structures.
 //
 // ExonerateSearch   -- per-sample: run exonerate, output target GFF
@@ -22,12 +22,15 @@ process ExonerateSearch {
     tuple val(query_id), val(sample_id), path(scaffolds_fasta), path("${sample_id}_exonerate.gff3"), emit: gff3
 
     script:
-    def exonerate_model = (seq_type == 'protein') ? 'protein2genome' : 'est2genome'
+    // Nucleotide queries are mature CDS, so use coding2genome (codon-aware, spliced).
+    // est2genome labels the aligned region as UTR/exon and emits no cds features,
+    // which leaves nothing for ExtractExonerateCds to extract.
+    def exonerate_model = (seq_type == 'protein') ? 'protein2genome' : 'coding2genome'
     """
     #!/bin/bash
     set -euo pipefail
 
-    # Run Exonerate: protein-to-genome or cDNA-to-genome spliced alignment.
+    # Run Exonerate: protein-to-genome or CDS-to-genome spliced alignment.
     # Use target-side GFF output for downstream CDS extraction.
     exonerate \
         --model ${exonerate_model} \

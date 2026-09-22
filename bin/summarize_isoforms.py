@@ -7,7 +7,9 @@ Usage:
     summarize_isoforms.py <query_id> <cds_aligned.fasta> <protein_aligned.fasta>
 
 Output:
-    <safe_query_id>_isoforms.tsv   (columns: sample_id, cds_isoform, protein_isoform)
+    <safe_query_id>_isoforms.tsv              (columns: sample_id, cds_isoform, protein_isoform)
+    <safe_query_id>_cds_isoforms.fasta        one ungapped sequence per unique CDS isoform
+    <safe_query_id>_protein_isoforms.fasta    one ungapped sequence per unique protein isoform
 
 Haplotype identity is determined from the full aligned sequence (gaps included),
 uppercased. MAFFT reverse-complement headers prefixed with '_R_' are stripped.
@@ -57,6 +59,25 @@ def assign_isoforms(records):
     return result
 
 
+def write_isoform_fasta(path, prefix, records, isoforms):
+    """Write one ungapped sequence per isoform, numbered as in the TSV.
+
+    The header records how many samples carry the isoform, e.g.
+    '>cds_isoform_1 n_samples=3'.
+    """
+    seqs, counts = {}, {}
+    for header, seq in records:
+        num = isoforms[header]
+        seqs.setdefault(num, seq.replace('-', ''))
+        counts[num] = counts.get(num, 0) + 1
+    with open(path, 'w') as out:
+        for num in sorted(seqs):
+            seq = seqs[num]
+            out.write('>{}_{} n_samples={}\n'.format(prefix, num, counts[num]))
+            for i in range(0, len(seq), 60):
+                out.write(seq[i:i + 60] + '\n')
+
+
 def main():
     if len(sys.argv) != 4:
         sys.exit("Usage: summarize_isoforms.py <query_id> <cds_fasta> <protein_fasta>")
@@ -86,6 +107,11 @@ def main():
             cds_iso = cds_isoforms[sample_id]
             prot_iso = prot_isoforms.get(sample_id, 'NA')
             out.write('{}\t{}\t{}\n'.format(sample_id, cds_iso, prot_iso))
+
+    write_isoform_fasta('{}_cds_isoforms.fasta'.format(safe_qid),
+                        'cds_isoform', cds_records, cds_isoforms)
+    write_isoform_fasta('{}_protein_isoforms.fasta'.format(safe_qid),
+                        'protein_isoform', prot_records, prot_isoforms_raw)
 
 
 if __name__ == '__main__':

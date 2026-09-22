@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Exonerate with nucleotide CDS queries returned no hits.** Nucleotide queries now use the `coding2genome` model instead of `est2genome`, which reported the aligned region as UTR/exon and emitted no CDS features, so nothing was extracted even when the exon structure was found. Separate alignments on the same target are no longer merged into one gene model, and only the best-scoring model is kept where alignments overlap.
+- **Nucleotide BLAST missed divergent or short-exon hits.** `blastn` now runs with `-task blastn` instead of the megablast default.
+
+### Added
+
+- **Isoform sequences.** `13_summary_data/{query_id}_cds_isoforms.fasta` and `{query_id}_protein_isoforms.fasta` hold one sequence per unique isoform, numbered as in `{query_id}_isoforms.tsv`.
+
 ## v0.9.0 — 2026-09-17
 
 First tagged pre-release. The pipeline is functional but not yet fully tested; see `FUTURE_FEATURES.md` for planned work.
