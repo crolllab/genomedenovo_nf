@@ -84,7 +84,7 @@ def parse_vulgar_query_coords(path):
             if not line.startswith('vulgar:'):
                 continue
             parts = line.split()
-            if len(parts) < 10:
+            if len(parts) < 10 or parts[4] == '-':   # skip antisense query alignments
                 continue
             q_start   = int(parts[2])
             q_end     = int(parts[3])
@@ -170,14 +170,23 @@ def gff2_to_gff3_lines(gff_path):
     This function assigns each ``gene`` a stable GFF3 ID, then emits a
     properly attributed ``CDS`` line for every attribute-less ``cds`` line
     that follows it.  All other feature types are dropped.
+
+    Alignments of the reverse-complemented query (query strand ``-`` in the
+    preceding vulgar line; coding2genome only) are skipped: they describe the
+    antisense strand and can outscore the sense model at a divergent locus.
     """
     gff3_lines = []
     current_id = None
     current_strand = None
+    query_strand = '+'
     n_genes = 0
 
     with open(gff_path) as fh:
         for raw in fh:
+            if raw.startswith('vulgar:'):
+                parts = raw.split()
+                query_strand = parts[4] if len(parts) > 4 else '+'
+                continue
             if raw.startswith('#') or not raw.strip():
                 continue
             cols = raw.rstrip('\n').split('\t')
@@ -193,6 +202,9 @@ def gff2_to_gff3_lines(gff_path):
                 # Exonerate restarts gene_id at 1 for every alignment, so add a
                 # running index to keep separate alignments on one target apart.
                 n_genes += 1
+                if query_strand == '-':
+                    current_id = None
+                    continue
                 current_id = f'{seqid}_gene{gid}_{seq}' if seq else f'{seqid}_gene{gid}'
                 current_id = f'{current_id}_{n_genes}'
                 current_strand = strand
@@ -265,9 +277,8 @@ def drop_overlapping_models(cds_by_parent, gene_span):
     """Keep only the highest-scoring gene model among models that overlap on
     the same target sequence.
 
-    coding2genome (CDS queries) also reports a weaker alignment of the
-    reverse-complemented query over the same locus; without this filter it
-    would be emitted as a second, spurious CDS/protein for the sample.
+    Guards against duplicate models of one locus (antisense coding2genome
+    alignments are already removed in :func:`gff2_to_gff3_lines`).
     """
     kept = []
     for gid in sorted(cds_by_parent, key=lambda g: -gene_span.get(g, ('', 0, 0, 0.0))[3]):

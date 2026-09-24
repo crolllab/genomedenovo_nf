@@ -10,6 +10,7 @@ include { DownloadBUSCODatabase; BUSCO; SummarizeBuscoMetrics } from '../modules
 include { SplitQuerySequences; BLASTsearch } from '../modules/blast_search'
 include { ExtractBlastHits; CombineBlastHits } from '../modules/extract_blast_hits'
 include { ExonerateSearch; ExtractExonerateCds; CombineExonerateHits } from '../modules/exonerate_search'
+include { AssessCdsIntegrity } from '../modules/cds_integrity'
 include { AlignMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignExonerateCdsMAFFT } from '../modules/align_mafft'
 include { AlignMAFFT as AlignProteinMAFFT } from '../modules/align_mafft'
@@ -569,6 +570,19 @@ workflow denovo_query {
             // Extract CDS + protein from the raw GFF3 using python3 (spades container)
             ExtractExonerateCds(ExonerateSearch.out.gff3)
 
+            // Classify each gene model as full-length or truncated (nucleotide-level
+            // deletion vs ORF mutation). The full assembly gives exact contig ends.
+            integrity_input = ExonerateSearch.out.gff3
+                .combine(queries_with_type, by: 0)
+                .map { query_id, sample_id, hit_fasta, gff3, query_fasta, seq_type ->
+                    [sample_id, query_id, hit_fasta, gff3, query_fasta, seq_type]
+                }
+                .combine(all_scaffolds_ch, by: 0)
+                .map { sample_id, query_id, hit_fasta, gff3, query_fasta, seq_type, assembly ->
+                    [query_id, sample_id, hit_fasta, gff3, query_fasta, seq_type, assembly]
+                }
+            AssessCdsIntegrity(integrity_input)
+
             // Group per-sample outputs by query_id
             exonerate_cds_by_query = ExtractExonerateCds.out.cds_sequences
                 .map { query_id, sample_id, cds_fasta -> [query_id, cds_fasta] }
@@ -611,8 +625,19 @@ workflow denovo_query {
 
             // Isoform summary: join CDS and protein alignments per query and assign
             // consecutive haplotype numbers for unique CDS / protein sequences.
+            // The per-sample CDS integrity tables flag truncated isoforms; a query
+            // without any (all AssessCdsIntegrity tasks failed) still gets a summary.
+            integrity_by_query = AssessCdsIntegrity.out.summary
+                .groupTuple()
+                .join(AssessCdsIntegrity.out.events.groupTuple())
             isoform_input = AlignExonerateCdsMAFFT.out.alignment
                 .join(AlignProteinMAFFT.out.alignment)
+                .join(integrity_by_query, remainder: true)
+                .filter { row -> row[1] != null }
+                .map { row ->
+                    def (query_id, cds_aln, prot_aln, summaries, events) = row + [null, null]
+                    [query_id, cds_aln, prot_aln, summaries ?: [], events ?: []]
+                }
             SummarizeIsoforms(isoform_input)
 
             exonerate_done = CombineExonerateHits.out.combined_cds

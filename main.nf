@@ -9,6 +9,7 @@ params.scaffolds = ""
 params.padding = 500  // Number of bp to extend BLAST hit sequences on both sides
 params.SRR_sample_map = ""  // Optional: CSV file (no header) mapping original sample IDs to new names
 params.search_tool = 'blast'  // Sequence search tool: 'blast' (default) or 'exonerate' (spliced alignment)
+params.exonerate_refine = 'region' // Exonerate alignment refinement: 'region' (default), 'full' or 'none'
 params.skip_quast = false      // Set to true to skip QUAST assembly QC
 params.busco_lineage = ""      // BUSCO lineage (e.g. dothideomycetes_odb10). If empty, BUSCO is skipped.
 params.busco_db_path = ""      // Optional: path to pre-downloaded BUSCO databases (enables offline mode)
@@ -47,6 +48,7 @@ workflow {
      SRA ids file   : ${params.SRA_index}
      NCBI API key   : ${params.NCBI_API_key}
      search tool    : ${params.search_tool}
+     exonerate refine: ${params.exonerate_refine}
      padding        : ${params.padding} bp
      sample map     : ${params.SRR_sample_map ?: 'none'}
      busco lineage  : ${params.busco_lineage ?: 'skipped'}

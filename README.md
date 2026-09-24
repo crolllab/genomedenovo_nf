@@ -78,6 +78,8 @@ Available parameters
   - `blast` — BLAST search only (blastn for nucleotide queries, tblastn for protein queries).
   - `exonerate` — BLAST search plus **Exonerate** spliced alignment (`protein2genome` for protein queries, `coding2genome` for nucleotide CDS queries). Exonerate resolves exon boundaries and reports CDS nucleotide and protein sequences per sample. **Important:** when providing a nucleotide query with `--search_tool exonerate`, the sequence must be a **mature CDS** (coding sequence without introns), not genomic DNA.
 
+- `--exonerate_refine`: Optional. How Exonerate refines the heuristic alignment (`region`, `full` or `none`). Default: `region`, which re-aligns the hit region with full dynamic programming so that exons of divergent alleles are not dropped (which would otherwise look like truncations). `full` refines against the whole extracted window; `none` restores the plain heuristic.
+
 - `--skip_quast`: Optional flag. When set, skips the QUAST assembly quality assessment step. Useful when running on pre-assembled scaffolds that have already been assessed, or to speed up BLAST/Exonerate-only runs.
 
 - `--busco_lineage`: Optional. BUSCO lineage dataset for genome completeness assessment using [BUSCO v6](https://busco.ezlab.org/). **If this parameter is not provided, BUSCO is skipped entirely.** The lineage determines which set of near-universal single-copy orthologs (OrthoDB) is used to score the assembly. Select the most specific lineage available for your organism:
@@ -346,8 +348,22 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - `12_repeatmasker/{sample_id}_repeatmasker.tbl`: RepeatMasker summary table
 
 ### 13 — Isoform / haplotype summary outputs (if using --search_tool exonerate)
-- `13_summary_data/{query_id}_isoforms.tsv`: Assigns consecutive CDS and protein isoform IDs to each sample based on unique sequences in the aligned FASTA files. Columns: `sample_id`, `cds_isoform`, `protein_isoform`.
-- `13_summary_data/{query_id}_cds_isoforms.fasta` / `{query_id}_protein_isoforms.fasta`: One ungapped sequence per unique CDS / protein isoform, named `cds_isoform_N` / `protein_isoform_N` to match the TSV; the header also gives the number of samples carrying it (`n_samples=`).
+Isoform numbers are shared by all files of a query. The query reference (when it is part of the alignment) is isoform 1, followed by isoforms carried by at least one intact sequence, then isoforms found only in truncated or stop-lost sequences. The intact-only table therefore numbers consecutively, and truncated isoforms continue the series.
+
+- `13_summary_data/{query_id}_isoforms.tsv`: CDS and protein isoform IDs of the query reference and every intact sequence (truncated and stop-lost sequences excluded). Columns: `sample_id`, `cds_isoform`, `protein_isoform`.
+- **`13_summary_data/{query_id}_isoforms_incl_truncated.tsv`**: Every retrieved sequence (`sample_id` matches the Exonerate FASTA headers, `{sample}_{n}` when a sample has several gene models) with its isoform IDs and full-length/truncated classification. Samples without an Exonerate alignment are listed with status `no_hit`. Key columns:
+  - `status`: `reference`, `full_length`, `truncated`, `extended` (stop codon lost only) or `no_hit`
+  - `truncation_cause`: `nucleotide_deletion` (part of the query is absent from the contig), `ORF_mutation` (the sequence is there but the reading frame is disrupted), both, or `none`
+  - `deletion_types`: `5prime_deletion` / `3prime_deletion` (segment absent, contig continues with unrelated sequence), `contig_end` (contig ends before the segment could fit), `assembly_gap` (N run), `internal_deletion` (in-frame deletion ≥ 10 aa)
+  - `orf_mutation_types`: `frameshift`, `premature_stop`, `start_lost`, `stop_lost`, `noncanonical_splice_site`, `segment_outside_ORF` (the unaligned query segment re-aligns to the contig outside the ORF, e.g. an unbridged frameshift or a retained intron)
+  - `contig`, `contig_length`, `strand`, `gene_start`, `gene_end`, `exon_count`: location of the gene model
+  - `aligned_query_start_aa` / `aligned_query_end_aa`, `query_coverage_pct`, `aa_identity_pct`: extent and similarity of the alignment
+  - `observed_protein_length`: length of the protein the contig actually encodes (from the first aligned codon to the first stop, frameshifted tail included); `in_frame_query_aa` / `in_frame_query_pct`: reference residues encoded in the correct frame before that stop
+  - `start_codon`, `stop_codon`, `n_frameshifts`, `n_premature_stops`, `n_noncanonical_splice_sites`, `n_inframe_indels`, `first_disruption_aa`
+  - `mutation_details`: readable description of every mutation (e.g. `p.Q46* nonsense codon TAG`, `p.C36fs frameshift -1 nt (deletion in contig)`, `C-terminal query aa 69-82 (14 aa, 42 nt) missing: segment absent; ...`)
+  - `notes`: e.g. termini that Exonerate left unaligned although the ORF is intact, telomeric repeats or assembly gaps in the flank, low-confidence frameshift calls
+- **`13_summary_data/{query_id}_isoform_mutations.tsv`**: One row per mutation event with the isoform IDs of the sequence carrying it, the event class (`ORF_mutation`, `nucleotide_deletion`, `in_frame_indel`), type, affected query residues, contig coordinates, reference and observed codon/residue, indel size and description.
+- `13_summary_data/{query_id}_cds_isoforms.fasta` / `{query_id}_protein_isoforms.fasta`: One ungapped sequence per unique CDS / protein isoform (truncated ones included), named `cds_isoform_N` / `protein_isoform_N` to match the TSVs; the header also gives the number of samples carrying it (`n_samples=`) and their status (`status=`).
 
 
 ## Description of pipeline steps
@@ -361,6 +377,8 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - **BLAST search and hit extraction**: Each assembled genome is searched against a user-provided query sequence using BLAST (automatically selects blastn for nucleotide queries or tblastn for protein queries). The top hits are extracted with optional flanking sequence padding. Combined FASTA files include the original query sequence first, followed by all BLAST hits, making them ready for downstream analysis like multiple sequence alignment.
 
 - **Exonerate spliced alignment and CDS/protein extraction** (optional, `--search_tool exonerate`): BLAST hit regions are used as anchors for Exonerate (`protein2genome` or `coding2genome`) to refine exon boundaries and recover coding sequences per sample. Raw target-side GFF output is parsed into CDS nucleotide FASTA, translated protein FASTA, and per-sample/per-query summary tables.
+
+- **CDS integrity classification** (optional, `--search_tool exonerate`): each Exonerate gene model is walked codon by codon against the query to call frameshifts, premature stop codons, lost start/stop codons, non-canonical splice sites and in-frame indels. Query segments that Exonerate left unaligned are checked on the full contig: an in-frame start/stop codon at the expected distance means a divergent but intact terminus; otherwise the segment is re-aligned to the flanking sequence (local alignment for short segments, Exonerate `est2genome`/`protein2genome` for longer ones). A segment found there is reported as an ORF mutation (the sequence is present but outside the reading frame); a segment not found is a nucleotide-level deletion, with contig ends, assembly gaps and telomeric repeats flagged.
 
 - **Multiple sequence alignment with MAFFT**: The extracted BLAST hit sequences from each sample are aligned using MAFFT with `--auto` and `--adjustdirection` options. This produces both per-sample alignments and a combined alignment of all sequences from all samples.
 
@@ -376,7 +394,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 
 - **Exonerate CDS/protein phylogenies with IQ-tree3** (optional, `--search_tool exonerate --phylo_tree`): Separate ML trees are built per query from the MAFFT-aligned CDS and protein sequences produced by Exonerate. Model selection (`-m MFP`) and ultrafast bootstrap (`-B 1000`) are applied when ≥4 unique sequences are present. Outputs written to `9_phylogenies/exonerate/{query_id}/`.
 
-- **Isoform / haplotype identification** (optional, `--search_tool exonerate`): After alignment, unique CDS and protein sequences are identified and assigned consecutive isoform numbers per query. The resulting table (`13_summary_data/{query_id}_isoforms.tsv`) allows quick assessment of allelic or strain-level diversity across samples.
+- **Isoform / haplotype identification** (optional, `--search_tool exonerate`): After alignment, unique CDS and protein sequences are identified and assigned consecutive isoform numbers per query. The resulting table (`13_summary_data/{query_id}_isoforms.tsv`) allows quick assessment of allelic or strain-level diversity across samples; truncated isoforms are listed with their mutations in `{query_id}_isoforms_incl_truncated.tsv`.
 
 
 ## Features to consider / bug fixes

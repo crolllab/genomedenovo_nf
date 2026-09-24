@@ -4,11 +4,14 @@
 
 ### Fixed
 
+- **Exonerate dropped exons of divergent alleles.** Exonerate now refines its heuristic alignment (`--refine region`, configurable with `--exonerate_refine`). Before, intact but divergent alleles often came out as single-exon fragments and looked truncated.
+- **Antisense CDS models.** For nucleotide queries, `coding2genome` alignments of the reverse-complemented query are no longer extracted. At divergent loci they could outscore the sense model and replace it.
 - **Exonerate with nucleotide CDS queries returned no hits.** Nucleotide queries now use the `coding2genome` model instead of `est2genome`, which reported the aligned region as UTR/exon and emitted no CDS features, so nothing was extracted even when the exon structure was found. Separate alignments on the same target are no longer merged into one gene model, and only the best-scoring model is kept where alignments overlap.
 - **Nucleotide BLAST missed divergent or short-exon hits.** `blastn` now runs with `-task blastn` instead of the megablast default.
 
 ### Added
 
+- **Truncated isoforms.** Every Exonerate CDS is classified as full-length or truncated, separating nucleotide-level deletions (query segment absent, contig end, assembly gap) from ORF mutations (frameshift, premature stop, lost start/stop codon, non-canonical splice site). `13_summary_data/{query_id}_isoforms_incl_truncated.tsv` lists all sequences with their isoform IDs, status and mutations, and `{query_id}_isoform_mutations.tsv` lists each mutation with query position, contig coordinates and codon change. `{query_id}_isoforms.tsv` now holds intact isoforms only; numbering is shared by all files, with truncated isoforms numbered after the intact ones. The query reference is isoform 1 for protein queries too.
 - **Isoform sequences.** `13_summary_data/{query_id}_cds_isoforms.fasta` and `{query_id}_protein_isoforms.fasta` hold one sequence per unique isoform, numbered as in `{query_id}_isoforms.tsv`.
 
 ## v0.9.0 — 2026-09-17

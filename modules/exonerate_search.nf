@@ -26,6 +26,11 @@ process ExonerateSearch {
     // est2genome labels the aligned region as UTR/exon and emits no cds features,
     // which leaves nothing for ExtractExonerateCds to extract.
     def exonerate_model = (seq_type == 'protein') ? 'protein2genome' : 'coding2genome'
+    // --refine region re-aligns the heuristic hit region with full dynamic
+    // programming; without it divergent alleles often lose whole exons and
+    // look truncated. (--exhaustive hangs in this exonerate build.)
+    def refine = (params.exonerate_refine in ['region', 'full'])
+        ? "--refine ${params.exonerate_refine} --refineboundary 1000" : ''
     """
     #!/bin/bash
     set -euo pipefail
@@ -33,7 +38,7 @@ process ExonerateSearch {
     # Run Exonerate: protein-to-genome or CDS-to-genome spliced alignment.
     # Use target-side GFF output for downstream CDS extraction.
     exonerate \
-        --model ${exonerate_model} \
+        --model ${exonerate_model} ${refine} \
         --query ${query_fasta} \
         --target ${scaffolds_fasta} \
         --showalignment no \
