@@ -166,6 +166,10 @@ workflow denovo_query {
     // Placeholder for BUSCO phylogeny signal (only populated when --phylo_tree is set)
     phylo_done = channel.empty()
 
+    // Sample IDs of all inputs (SRA runs, local reads, local scaffolds), known
+    // before assembly; used for the sample name collision check
+    input_ids_ch = channel.empty()
+
     // ---------------------
     // SRA metadata + downloads
     // ---------------------
@@ -175,7 +179,12 @@ workflow denovo_query {
         
         // First run SRAresolve to get URLs
         SRAresolve(sra_file_ch)
-        
+        input_ids_ch = input_ids_ch.mix(
+            SRAresolve.out.url_file
+                .splitCsv(header: true, sep: '\t')
+                .map { row -> row.SRR_ID }
+        )
+
         // Parse the URL file to create download tuples
         pe_download_info = SRAresolve.out.url_file
             .splitCsv(header: true, sep: '\t')
@@ -223,6 +232,7 @@ workflow denovo_query {
 
                 return [commonPrefix, reads_list[0], reads_list[1], 'local']
             }
+            input_ids_ch = input_ids_ch.mix(local_pe_formatted.map { row -> row[0] })
         } else {
             local_pe_formatted = channel.empty()
         }
@@ -345,6 +355,7 @@ workflow denovo_query {
             }
             acc.mix(path_ch)
         }
+        input_ids_ch = input_ids_ch.mix(local_scaffolds_ch.map { sample_id, _scaffolds -> sample_id })
     } else {
         local_scaffolds_ch = channel.empty()
     }
@@ -373,8 +384,8 @@ workflow denovo_query {
     // ---------------------
     // Rename samples (optional)
     // ---------------------
+    def rename_map = [:]
     if (params.SRR_sample_map) {
-        def rename_map = [:]
         file(params.SRR_sample_map).eachLine { line ->
             def parts = line.trim().split(',', 2)
             if (parts.size() == 2) rename_map[parts[0].trim()] = parts[1].trim()
@@ -384,6 +395,36 @@ workflow denovo_query {
                 [rename_map.getOrDefault(sample_id, sample_id), scaffolds]
             }
     }
+
+    // ---------------------
+    // Sample name collision check
+    // ---------------------
+    // Every sample needs a unique final name (after --SRR_sample_map), also
+    // once characters outside [A-Za-z0-9._-] are replaced by '_' as in output
+    // file names and sequence/tree names. Otherwise outputs overwrite each other
+    // and IQ-TREE rejects duplicated names. Runs on the input IDs, so the run
+    // stops before assembly (SRA runs are known once SRAresolve has finished).
+    input_ids_ch
+        .map { sample_id -> [rename_map.getOrDefault(sample_id, sample_id), sample_id] }
+        .collect(flat: false)
+        .map { pairs ->
+            def clashes = pairs
+                .groupBy { name, _orig -> name.replaceAll(/[^A-Za-z0-9._-]/, '_') }
+                .findAll { _safe, group -> group.size() > 1 }
+            if (clashes) {
+                def lines = clashes.collect { safe, group ->
+                    "    ${safe}: " + group.collect { name, orig ->
+                        name == orig ? "'${orig}'" : "'${orig}' (renamed to '${name}')"
+                    }.join(', ')
+                }
+                error """ERROR: Sample name collision, several inputs end up with the same sample name:
+${lines.join('\n')}
+  Sample names must be unique, also after characters outside [A-Za-z0-9._-] are replaced by '_'.
+  Check --SRR_sample_map for duplicated target names, and inputs (reads, SRA runs, scaffolds)
+  given more than once or sharing a name."""
+            }
+            pairs
+        }
 
     // ---------------------
     // RepeatMasker TE annotation (optional — triggered by --repeat_library)

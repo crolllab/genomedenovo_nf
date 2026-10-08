@@ -190,7 +190,7 @@ Available parameters
      --scaffolds '/path/to/folder/*.fasta'
      ```
 
-- `--SRR_sample_map`: Optional. A CSV file mapping sample IDs (as derived from FASTQ filenames, SRA accessions, or scaffold directory names) to user-defined names. This is useful for renaming samples to meaningful isolate or strain identifiers before output is written. The CSV format is: `original_id,new_name` (one mapping per line, no header). If a sample ID is not listed in the file, the original ID is kept unchanged. Default: `false` (no mapping).
+- `--SRR_sample_map`: Optional. A CSV file mapping sample IDs (as derived from FASTQ filenames, SRA accessions, or scaffold directory names) to user-defined names. This is useful for renaming samples to meaningful isolate or strain identifiers before output is written. The CSV format is: `original_id,new_name` (one mapping per line, no header). If a sample ID is not listed in the file, the original ID is kept unchanged. Default: `false` (no mapping). Final sample names must be unique, also after characters outside `[A-Za-z0-9._-]` are replaced by `_` (e.g. `isolate 1` and `isolate_1` clash). The pipeline checks this for all inputs (reads, SRA runs, scaffolds) before assembly and stops with a list of the clashing inputs.
 
   Example `sample_map.csv`:
   ```
