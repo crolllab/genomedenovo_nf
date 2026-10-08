@@ -294,7 +294,7 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - `6_blast_hits/{query_id}/blast_results/{sample_id}_blast_results.tsv`: Raw BLAST output in tabular format
 - `6_blast_hits/{query_id}/hit_sequences/{sample_id}_top_hits.fasta`: Extracted hit sequences per sample
 - `6_blast_hits/{query_id}/hit_sequences/{sample_id}_top_hits_info.tsv`: Metadata table for each hit
-- `6_blast_hits/{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA with **query sequence first**, then all hits
+- `6_blast_hits/{query_id}/{query_id}_all_blast_hits.fasta`: Combined FASTA with **query sequence first**, then all hits; hits are named by sample ID (renamed IDs when `--SRR_sample_map` is used, whitespace replaced by `_`) with the hit location as description (`>sample_id scaffold:start-end`), so alignments and trees show sample names
 - `6_blast_hits/{query_id}/{query_id}_all_blast_hits_summary.tsv`: Combined metadata table (hits only)
 - **`6_blast_hits/blast_summary_merged.tsv`**: Wide-format table merging results from all queries
   - First column: Sample_ID; for each query: `{query}_Present`, `{query}_Identity`, `{query}_AlignLen`, `{query}_Evalue`, `{query}_BitScore`

@@ -86,7 +86,15 @@ process AlignMAFFT {
 
     # Run MAFFT with auto mode and direction adjustment
     mafft --thread ${task.cpus} --auto --adjustdirection "\${align_input}" > "\${file_stem}_aligned_sequences.fasta" 2>> "\${file_stem}_mafft_alignment_log.txt"
-    
+
+    # --adjustdirection prefixes reverse-complemented records with '_R_'; log
+    # them and strip the prefix so that names (and tree tips) stay sample IDs
+    if grep -q '^>_R_' "\${file_stem}_aligned_sequences.fasta"; then
+        echo "Reverse-complemented by MAFFT:" >> "\${file_stem}_mafft_alignment_log.txt"
+        grep '^>_R_' "\${file_stem}_aligned_sequences.fasta" | sed 's|^>_R_|  |' >> "\${file_stem}_mafft_alignment_log.txt"
+        sed -i 's|^>_R_|>|' "\${file_stem}_aligned_sequences.fasta"
+    fi
+
     # Check if alignment was successful
     if [ -s "\${file_stem}_aligned_sequences.fasta" ]; then
         aligned_count=\$(grep -c "^>" "\${file_stem}_aligned_sequences.fasta" || echo "0")

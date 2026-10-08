@@ -258,10 +258,17 @@ process CombineBlastHits {
     fi
     
     # Then combine all BLAST hit FASTA files (skip empty files)
-    # Use specific pattern to avoid reading the output file
+    # Use specific pattern to avoid reading the output file.
+    # Records are renamed to the sample ID (whitespace replaced by '_', as
+    # alignment and tree tools use the first word as the name), keeping the
+    # hit location as description: '>sample_id scaffold:start-end'. The
+    # per-sample files keep the location as name (Exonerate relies on it).
     for fasta in *_top_hits.fasta; do
         if [ -f "\$fasta" ] && [ -s "\$fasta" ]; then
-            cat "\$fasta" >> "\${clean_query_id}_all_blast_hits.fasta"
+            sample_id=\$(basename "\$fasta" "_top_hits.fasta")
+            sample_id="\${sample_id//[[:space:]]/_}"
+            awk -v s="\$sample_id" '/^>/{print ">" s " " substr(\$0, 2); next} {print}' "\$fasta" \
+                >> "\${clean_query_id}_all_blast_hits.fasta"
         fi
     done
     

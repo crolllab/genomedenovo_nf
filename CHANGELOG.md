@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **BLAST hit tree named sequences by scaffold coordinates.** The combined BLAST hit FASTA, its alignment and tree now name each hit by its sample ID (`>sample_id scaffold:start-end`). Before, tips carried only the scaffold location, and IQ-TREE failed when two samples shared a scaffold name and location. MAFFT's `_R_` prefix for reverse-complemented sequences is now removed from all alignments (and logged), so tree tips stay sample names.
 - **Exonerate dropped exons of divergent alleles.** Exonerate now refines its heuristic alignment (`--refine region`, configurable with `--exonerate_refine`). Before, intact but divergent alleles often came out as single-exon fragments and looked truncated.
 - **Antisense CDS models.** For nucleotide queries, `coding2genome` alignments of the reverse-complemented query are no longer extracted. At divergent loci they could outscore the sense model and replace it.
 - **Exonerate with nucleotide CDS queries returned no hits.** Nucleotide queries now use the `coding2genome` model instead of `est2genome`, which reported the aligned region as UTR/exon and emitted no CDS features, so nothing was extracted even when the exon structure was found. Separate alignments on the same target are no longer merged into one gene model, and only the best-scoring model is kept where alignments overlap.
