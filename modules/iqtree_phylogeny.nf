@@ -1,6 +1,8 @@
 // Build a maximum-likelihood phylogeny from a single MAFFT alignment with IQ-tree3.
-// Used for BLAST or Exonerate alignments — one tree per query.
-// Input:  [query_id, seq_type, alignment_fasta]  (seq_type: "blast", "cds", or "protein")
+// Used for BLAST or Exonerate alignments and for the Exonerate isoform alignments
+// (one aligned row per isoform, from SummarizeIsoforms) — one tree per query.
+// Input:  [query_id, seq_type, alignment_fasta]
+//         (seq_type: "blast", "cds", "protein", "cds_isoform" or "protein_isoform")
 // Output: IQ-tree result files prefixed <query_id>_<seq_type>_phylogeny, published
 //         in 9_phylogenies/<blast|exonerate>/<query_id>/.
 process IQtreeAlignmentPhylogeny {

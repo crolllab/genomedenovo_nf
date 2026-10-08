@@ -389,7 +389,7 @@ def main():
                 contig_end   = 'NA'
 
             cds_out.write(f'>{header}\n{wrap(full_cds)}\n')
-            prot_out.write(f'>{header}_prot\n{wrap(prot)}\n')
+            prot_out.write(f'>{header}\n{wrap(prot)}\n')
             sum_out.write(
                 f'{sample_id}\t{query_id_val}\t{scaffold}\t{strand}\t'
                 f'{q_start_val}\t{q_end_val}\t'

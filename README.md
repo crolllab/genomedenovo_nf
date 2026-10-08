@@ -20,7 +20,8 @@ Implemented steps:
 - `bwa-mem2`: reference-guided read mapping for coverage assessment (optional, `--reference_genome`)
 - `repeatmasker`: transposable element annotation using a user-provided consensus library (optional, `--repeat_library`)
 - `raxml-ng` or `iqtree3`: maximum-likelihood phylogenetic tree from BUSCO single-copy orthologs (optional, `--phylo_tree`; RAxML-NG is the default, switch with `--busco_tree iqtree`)
-- `iqtree3`: maximum-likelihood phylogenetic trees from Exonerate CDS/protein alignments per query (optional, `--search_tool exonerate --phylo_tree`)
+- `iqtree3`: maximum-likelihood phylogenetic trees per query from the BLAST hit alignment and, with `--search_tool exonerate`, from the CDS/protein alignments and the CDS/protein isoforms
+- `ape` (R): PDF rendering of the isoform trees (optional, `--search_tool exonerate`)
 - haplotype identification: assigns consecutive isoform IDs to unique CDS and protein sequences per query (optional, `--search_tool exonerate`)
 
 ## Step 1: Repository, singularity containers and nextflow environment
@@ -113,21 +114,19 @@ Available parameters
   --reference_genome /path/to/reference.fasta
   ```
 
-- `--repeat_library`: Optional. Path to a TE consensus library FASTA file. When provided, all assembled (or supplied) scaffolds are annotated with **RepeatMasker** using this library. One GFF file per sample is produced, along with masked FASTA files and a summary table. A pre-built library can be generated with RepeatModeler or obtained from [Dfam](https://www.dfam.org).
+- `--repeat_library`: Optional. Path to a TE consensus library FASTA file. When provided, all assembled (or supplied) scaffolds are annotated with **RepeatMasker** using this library. One GFF file per sample is produced, along with masked FASTA files and a summary table. Combined with `--blast_query`, the TEs on the scaffold carrying each sample's hit are listed with their distance to the hit (see output section 13). A pre-built library can be generated with RepeatModeler or obtained from [Dfam](https://www.dfam.org).
   ```bash
   --repeat_library /path/to/TE_library.fasta
   ```
 
-- `--phylo_tree`: Optional flag. When set, maximum-likelihood phylogenetic trees are built:
-  - **BUSCO gene supermatrix** (requires `--busco_lineage`): single-copy ortholog **protein** sequences (`.faa`, produced by BUSCO v6 via miniprot) are extracted per sample, aligned gene-by-gene with MAFFT (`--amino`), and concatenated into a supermatrix. By default the tree is inferred with **RAxML-NG** using per-gene LG+G partitions and 200 bootstrap replicates. Switch to IQ-tree3 with `--busco_tree iqtree` (per-partition model selection `-m MFP`, 1000 ultrafast bootstrap). Bootstrap is applied only when ≥4 unique taxa are present. Output written to `5_busco_phylogeny/`.
-  - **Exonerate CDS and protein phylogenies** (requires `--search_tool exonerate`): separate CDS and protein ML trees are built per query with **IQ-tree3** from the MAFFT-aligned Exonerate sequences. Model selection (`-m MFP`) and bootstrap (`-B 1000`) applied when ≥4 unique sequences are present. Output written to `9_phylogenies/exonerate/{query_id}/`.
+- `--phylo_tree`: Optional flag. When set, a maximum-likelihood phylogenetic tree is built from a **BUSCO gene supermatrix** (requires `--busco_lineage`): single-copy ortholog **protein** sequences (`.faa`, produced by BUSCO v6 via miniprot) are extracted per sample, aligned gene-by-gene with MAFFT (`--amino`), and concatenated into a supermatrix. By default the tree is inferred with **RAxML-NG** using per-gene LG+G partitions and 200 bootstrap replicates. Switch to IQ-tree3 with `--busco_tree iqtree` (per-partition model selection `-m MFP`, 1000 ultrafast bootstrap). Bootstrap is applied only when ≥4 unique taxa are present. Output written to `5_busco_phylogeny/`.
 
   Threads are set by the active `-profile` configuration (16 by default for `slurm`/`local_highCPU`).
   ```bash
   --busco_lineage dothideomycetes_odb10 --phylo_tree
   --busco_lineage dothideomycetes_odb10 --phylo_tree --busco_tree iqtree
-  --search_tool exonerate --phylo_tree
   ```
+  The per-query trees (BLAST hits, Exonerate CDS/protein, isoforms) do not depend on this flag: they are always built when `--blast_query` (and, for the Exonerate trees, `--search_tool exonerate`) is set.
 
 - `--busco_tree`: Optional. Phylogenetic tool used to infer the BUSCO supermatrix tree when `--phylo_tree` is set. Default: `raxml-ng`. Use `iqtree` to switch to IQ-tree3.
   ```bash
@@ -316,8 +315,10 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - `8_alignments/exonerate/{query_id}/{query_id}_all_exonerate_cds_aligned_sequences.fasta`: CDS alignment (if `--search_tool exonerate`)
 - `8_alignments/exonerate/{query_id}/{query_id}_all_exonerate_protein_aligned_sequences.fasta`: Protein alignment (if `--search_tool exonerate`)
 
-### 9 — Alignment phylogeny outputs (if using --search_tool exonerate --phylo_tree)
-- `9_phylogenies/exonerate/{query_id}/`: IQ-tree3 ML trees per query, one for CDS and one for protein:
+### 9 — Alignment phylogeny outputs (if using --blast_query)
+Per-query IQ-tree3 ML trees are built from every alignment with at least 3 unique sequences; model selection (`-m MFP`) is always applied, ultrafast bootstrap (`-B 1000`) when ≥4 unique sequences are present. They do not require `--phylo_tree`.
+- `9_phylogenies/blast/{query_id}/{query_id}_blast_phylogeny.*`: Tree of the BLAST hit alignment
+- `9_phylogenies/exonerate/{query_id}/` (if using `--search_tool exonerate`): one tree each for the CDS and protein alignments (one tip per sample sequence) and for the CDS and protein isoforms (one tip per isoform):
   - `{query_id}_cds_phylogeny.treefile`: Best ML tree (CDS) in Newick format
   - `{query_id}_cds_phylogeny.contree`: Consensus tree with bootstrap support (if ≥4 unique taxa)
   - `{query_id}_cds_phylogeny.iqtree`: Full IQ-tree report (model selection, tree statistics)
@@ -326,6 +327,8 @@ When multiple query sequences are provided, outputs are organized by query ID:
   - `{query_id}_protein_phylogeny.contree`: Consensus tree with bootstrap support (if ≥4 unique taxa)
   - `{query_id}_protein_phylogeny.iqtree`: Full IQ-tree report
   - `{query_id}_protein_phylogeny.log`: IQ-tree log
+  - `{query_id}_cds_isoform_phylogeny.*` / `{query_id}_protein_isoform_phylogeny.*`: The same IQ-tree files for the isoform trees, built from `13_summary_data/{query_id}_{cds,protein}_isoforms_aligned.fasta`
+  - **`{query_id}_cds_isoform_phylogeny.pdf` / `{query_id}_protein_isoform_phylogeny.pdf`**: Isoform tree drawn as a PDF. The tree is midpoint-rooted, tips read `Isoform N (n = samples carrying it)`, isoforms found only in truncated (orange) or stop-lost (blue) sequences are coloured, the query reference is marked with a triangle, and bootstrap support is shown at internal nodes (from the `.contree` when available). Not produced when a query has fewer than 3 isoforms.
 
 ### 10 — BWA-mem2 mapping outputs (if using --reference_genome)
 - `10_bwa_mapping/{sample_id}_sorted.bam`: Sorted, MAPQ≥10 filtered BAM file
@@ -346,11 +349,22 @@ When multiple query sequences are provided, outputs are organized by query ID:
 - `12_repeatmasker/{sample_id}_repeatmasker.gff`: TE annotations in GFF format
 - `12_repeatmasker/{sample_id}_repeatmasker.masked`: Soft-masked genome FASTA
 - `12_repeatmasker/{sample_id}_repeatmasker.tbl`: RepeatMasker summary table
+- `12_repeatmasker/{sample_id}_repeatmasker.out`: RepeatMasker annotation table (includes the TE class/family missing from the GFF)
 
-### 13 — Isoform / haplotype summary outputs (if using --search_tool exonerate)
-Isoform numbers are shared by all files of a query. The query reference (when it is part of the alignment) is isoform 1, followed by isoforms carried by at least one intact sequence, then isoforms found only in truncated or stop-lost sequences. The intact-only table therefore numbers consecutively, and truncated isoforms continue the series.
+### 13 — Summary data
 
-- `13_summary_data/{query_id}_isoforms.tsv`: CDS and protein isoform IDs of the query reference and every intact sequence (truncated and stop-lost sequences excluded). Columns: `sample_id`, `cds_isoform`, `protein_isoform`.
+#### TEs near the hit (if using --repeat_library with --blast_query)
+For each sample, the RepeatMasker TEs (simple repeats and low-complexity regions excluded) on the scaffold carrying the query hit. The hit is the Exonerate gene model with `--search_tool exonerate`, otherwise the best BLAST hit (the merged span of all HSPs on the best scaffold, so its ends are not necessarily the start/stop codons).
+
+Distances are edge to edge in bp and follow the **orientation of the hit (5'→3')**: negative = the TE lies upstream (5') of the hit, positive = downstream (3'), 0 = the TE overlaps the hit span (introns included). For a hit on the minus strand, upstream therefore means higher scaffold coordinates.
+
+- **`13_summary_data/{query_id}_scaffold_TEs.tsv`**: One row per TE on the hit scaffold, ordered 5'→3' within each hit. Columns: `sample_id`, `hit_id` (`{sample}_{n}` when a sample has several Exonerate gene models), `query_id`, `scaffold`, `hit_start`, `hit_end`, `hit_strand`, `te_name`, `te_class`, `te_start`, `te_end`, `te_strand`, `te_orientation` (`same` / `opposite` strand as the hit), `te_length`, `position` (`upstream`, `downstream`, `overlap`; `none` when the scaffold carries no TE, `no_hit` for samples without a hit), `distance_bp`, `perc_div` (divergence from the consensus), `sw_score`, `te_id` (RepeatMasker ID).
+- `13_summary_data/{query_id}_scaffold_TEs_summary.tsv`: One row per hit: number of TEs on the scaffold, overlapping TEs, and the nearest upstream and downstream TE with their distances.
+
+#### Isoforms / haplotypes (if using --search_tool exonerate)
+Isoform numbers are shared by all files of a query and follow **isoform frequency**: isoforms carried by at least one intact sequence come first, ordered by the number of sample sequences carrying them (most frequent = 1; ties keep alignment order; the query reference is not counted). They are followed by the query reference if its sequence is not found in any intact sample, then by isoforms found only in truncated or stop-lost sequences, again ordered by frequency. The intact-only table therefore numbers consecutively, and truncated isoforms continue the series.
+
+- `13_summary_data/{query_id}_isoforms.tsv`: CDS and protein isoform IDs of the query reference and every intact sequence (truncated and stop-lost sequences excluded). Columns: `sample_id`, `cds_isoform`, `protein_isoform`, `cds_sequence`, `protein_sequence` (ungapped).
 - **`13_summary_data/{query_id}_isoforms_incl_truncated.tsv`**: Every retrieved sequence (`sample_id` matches the Exonerate FASTA headers, `{sample}_{n}` when a sample has several gene models) with its isoform IDs and full-length/truncated classification. Samples without an Exonerate alignment are listed with status `no_hit`. Key columns:
   - `status`: `reference`, `full_length`, `truncated`, `extended` (stop codon lost only) or `no_hit`
   - `truncation_cause`: `nucleotide_deletion` (part of the query is absent from the contig), `ORF_mutation` (the sequence is there but the reading frame is disrupted), both, or `none`
@@ -362,8 +376,10 @@ Isoform numbers are shared by all files of a query. The query reference (when it
   - `start_codon`, `stop_codon`, `n_frameshifts`, `n_premature_stops`, `n_noncanonical_splice_sites`, `n_inframe_indels`, `first_disruption_aa`
   - `mutation_details`: readable description of every mutation (e.g. `p.Q46* nonsense codon TAG`, `p.C36fs frameshift -1 nt (deletion in contig)`, `C-terminal query aa 69-82 (14 aa, 42 nt) missing: segment absent; ...`)
   - `notes`: e.g. termini that Exonerate left unaligned although the ORF is intact, telomeric repeats or assembly gaps in the flank, low-confidence frameshift calls
+  - `cds_sequence`, `protein_sequence`: ungapped sequences (`NA` for `no_hit`)
 - **`13_summary_data/{query_id}_isoform_mutations.tsv`**: One row per mutation event with the isoform IDs of the sequence carrying it, the event class (`ORF_mutation`, `nucleotide_deletion`, `in_frame_indel`), type, affected query residues, contig coordinates, reference and observed codon/residue, indel size and description.
 - `13_summary_data/{query_id}_cds_isoforms.fasta` / `{query_id}_protein_isoforms.fasta`: One ungapped sequence per unique CDS / protein isoform (truncated ones included), named `cds_isoform_N` / `protein_isoform_N` to match the TSVs; the header also gives the number of samples carrying it (`n_samples=`) and their status (`status=`).
+- `13_summary_data/{query_id}_cds_isoforms_aligned.fasta` / `{query_id}_protein_isoforms_aligned.fasta`: One aligned row per isoform (taken from the MAFFT alignment, all-gap columns removed); input for the isoform trees in `9_phylogenies/exonerate/{query_id}/`.
 
 
 ## Description of pipeline steps
@@ -388,13 +404,13 @@ Isoform numbers are shared by all files of a query. The query reference (when it
 
 - **Genome completeness with BUSCO** (optional, `--busco_lineage`): Each assembled genome is evaluated against a specified OrthoDB lineage database using BUSCO v6 in genome mode. Results include a per-sample completeness score and a combined `busco_summary_metrics.tsv` table. If `--phylo_tree` is also set, single-copy ortholog nucleotide sequences are additionally extracted from each sample for downstream phylogenomics.
 
-- **Transposable element annotation with RepeatMasker** (optional, `--repeat_library`): All scaffolds (assembled or user-supplied) are annotated with RepeatMasker using the provided TE consensus library. Outputs include GFF annotations, soft-masked FASTA files, and per-sample summary tables.
+- **Transposable element annotation with RepeatMasker** (optional, `--repeat_library`): All scaffolds (assembled or user-supplied) are annotated with RepeatMasker using the provided TE consensus library. Outputs include GFF annotations, soft-masked FASTA files, and per-sample summary tables. With `--blast_query`, the TEs on each hit scaffold are listed with their position relative to the hit in the hit's 5'→3' orientation.
 
-- **BUSCO gene phylogeny** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. By default, **RAxML-NG** infers the tree with per-gene GTR+G partitions and 200 bootstrap replicates. Switch to IQ-tree3 with `--busco_tree iqtree` (per-partition MFP model selection, 1000 ultrafast bootstrap). Bootstrap is skipped when fewer than 4 unique taxa are present. Output written to `5_busco_phylogeny/`. Requires `--busco_lineage`.
+- **BUSCO gene phylogeny** (optional, `--phylo_tree`): Single-copy BUSCO ortholog sequences are extracted per sample, aligned gene-by-gene with MAFFT, and concatenated into a supermatrix. By default, **RAxML-NG** infers the tree with per-gene LG+G partitions and 200 bootstrap replicates. Switch to IQ-tree3 with `--busco_tree iqtree` (per-partition MFP model selection, 1000 ultrafast bootstrap). Bootstrap is skipped when fewer than 4 unique taxa are present. Output written to `5_busco_phylogeny/`. Requires `--busco_lineage`.
 
-- **Exonerate CDS/protein phylogenies with IQ-tree3** (optional, `--search_tool exonerate --phylo_tree`): Separate ML trees are built per query from the MAFFT-aligned CDS and protein sequences produced by Exonerate. Model selection (`-m MFP`) and ultrafast bootstrap (`-B 1000`) are applied when ≥4 unique sequences are present. Outputs written to `9_phylogenies/exonerate/{query_id}/`.
+- **Per-query phylogenies with IQ-tree3** (with `--blast_query`; Exonerate trees with `--search_tool exonerate`): ML trees are built per query from the BLAST hit alignment and from the MAFFT-aligned CDS and protein sequences produced by Exonerate, plus isoform trees with one tip per unique CDS / protein isoform, which are also drawn as midpoint-rooted PDFs with R/ape. Model selection (`-m MFP`) and ultrafast bootstrap (`-B 1000`) are applied when ≥4 unique sequences are present. Outputs written to `9_phylogenies/{blast,exonerate}/{query_id}/`.
 
-- **Isoform / haplotype identification** (optional, `--search_tool exonerate`): After alignment, unique CDS and protein sequences are identified and assigned consecutive isoform numbers per query. The resulting table (`13_summary_data/{query_id}_isoforms.tsv`) allows quick assessment of allelic or strain-level diversity across samples; truncated isoforms are listed with their mutations in `{query_id}_isoforms_incl_truncated.tsv`.
+- **Isoform / haplotype identification** (optional, `--search_tool exonerate`): After alignment, unique CDS and protein sequences are identified and numbered per query by frequency (most frequent intact isoform = 1). The resulting table (`13_summary_data/{query_id}_isoforms.tsv`) allows quick assessment of allelic or strain-level diversity across samples; truncated isoforms are listed with their mutations in `{query_id}_isoforms_incl_truncated.tsv`.
 
 
 ## Features to consider / bug fixes

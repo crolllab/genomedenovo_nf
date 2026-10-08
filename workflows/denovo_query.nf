@@ -30,6 +30,10 @@ include { RaxmlNgPhylogeny } from '../modules/raxml_ng_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeBlastPhylogeny } from '../modules/iqtree_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeCdsPhylogeny } from '../modules/iqtree_phylogeny'
 include { IQtreeAlignmentPhylogeny as IQtreeProteinPhylogeny } from '../modules/iqtree_phylogeny'
+include { IQtreeAlignmentPhylogeny as IQtreeCdsIsoformPhylogeny } from '../modules/iqtree_phylogeny'
+include { IQtreeAlignmentPhylogeny as IQtreeProteinIsoformPhylogeny } from '../modules/iqtree_phylogeny'
+include { PlotIsoformTree } from '../modules/plot_isoform_tree'
+include { SummarizeHitTEs } from '../modules/summarize_hit_tes'
 include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from '../modules/locus_coverage'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
@@ -154,6 +158,10 @@ workflow denovo_query {
 
     // Placeholder for RepeatMasker signal (only populated when --repeat_library is set)
     repeat_done = channel.empty()
+
+    // Placeholders for the TEs-near-hits step (--repeat_library with --blast_query)
+    repeat_out_all = channel.empty()
+    hit_tes_done = channel.empty()
 
     // Placeholder for BUSCO phylogeny signal (only populated when --phylo_tree is set)
     phylo_done = channel.empty()
@@ -384,6 +392,10 @@ workflow denovo_query {
         repeat_lib_ch = Channel.value(file(params.repeat_library))
         RepeatMasker(all_scaffolds_ch, repeat_lib_ch)
         repeat_done = RepeatMasker.out.gff.map { id, gff -> gff }.collect()
+
+        // All samples' .out tables as a single list item; wrapped so that
+        // `combine` with the per-query hit tables does not flatten it
+        repeat_out_all = RepeatMasker.out.rm_out.map { id, rm_out -> rm_out }.collect().map { files -> [files] }
     }
 
     // ---------------------
@@ -640,6 +652,32 @@ workflow denovo_query {
                 }
             SummarizeIsoforms(isoform_input)
 
+            // Isoform trees: one aligned row per CDS / protein isoform
+            IQtreeCdsIsoformPhylogeny(
+                SummarizeIsoforms.out.cds_isoforms_aligned.map { query_id, fasta -> [query_id, "cds_isoform", fasta] }
+            )
+            IQtreeProteinIsoformPhylogeny(
+                SummarizeIsoforms.out.protein_isoforms_aligned.map { query_id, fasta -> [query_id, "protein_isoform", fasta] }
+            )
+
+            // Render each isoform tree as a PDF, labelled from the isoform FASTA
+            // headers. Skipped when IQ-TREE wrote no tree (fewer than 3 isoforms).
+            cds_isoform_trees = IQtreeCdsIsoformPhylogeny.out.results
+                .filter { query_id, files -> (files instanceof List ? files : [files]).any { f -> f.name.endsWith('.treefile') } }
+                .join(SummarizeIsoforms.out.cds_isoforms)
+                .map { query_id, files, fasta -> [query_id, "cds_isoform", files, fasta] }
+            protein_isoform_trees = IQtreeProteinIsoformPhylogeny.out.results
+                .filter { query_id, files -> (files instanceof List ? files : [files]).any { f -> f.name.endsWith('.treefile') } }
+                .join(SummarizeIsoforms.out.protein_isoforms)
+                .map { query_id, files, fasta -> [query_id, "protein_isoform", files, fasta] }
+            PlotIsoformTree(cds_isoform_trees.mix(protein_isoform_trees))
+
+            // TEs on the scaffold carrying each Exonerate gene model (--repeat_library)
+            if (params.repeat_library) {
+                SummarizeHitTEs(CombineExonerateHits.out.summary.combine(repeat_out_all))
+                hit_tes_done = SummarizeHitTEs.out.summary.map { query_id, tsv -> tsv }.collect()
+            }
+
             exonerate_done = CombineExonerateHits.out.combined_cds
                 .map { query_id, fasta -> fasta }
 
@@ -676,6 +714,8 @@ workflow denovo_query {
                 .mix(IQtreeBlastPhylogeny.out.results.collect())
                 .mix(IQtreeCdsPhylogeny.out.results.collect())
                 .mix(IQtreeProteinPhylogeny.out.results.collect())
+                .mix(PlotIsoformTree.out.pdf.collect())
+                .mix(hit_tes_done)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)
@@ -684,6 +724,12 @@ workflow denovo_query {
                 .collect()
 
         } else {
+            // TEs on the scaffold carrying the best BLAST hit (--repeat_library)
+            if (params.repeat_library) {
+                SummarizeHitTEs(CombineBlastHits.out.summary.combine(repeat_out_all))
+                hit_tes_done = SummarizeHitTEs.out.summary.map { query_id, tsv -> tsv }.collect()
+            }
+
             // ------------------------------------------------------------------
             // Locus coverage (--locus_coverage)
             // ------------------------------------------------------------------
@@ -713,6 +759,7 @@ workflow denovo_query {
             all_done = assembly_qc_done
                 .mix(MergeBlastSummaries.out)
                 .mix(IQtreeBlastPhylogeny.out.results.collect())
+                .mix(hit_tes_done)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)

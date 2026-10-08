@@ -163,6 +163,8 @@ process CombineExonerateHits {
     # -------------------------------------------------------------------------
     # If query is nucleotide, translate it and prepend to the protein FASTA so
     # the protein alignment includes the reference sequence in protein form.
+    # The translation is named by the first word of the query header (no
+    # suffix), so protein and CDS records share their names.
     # -------------------------------------------------------------------------
     if [ "\${query_type}" = "nucleotide" ] && [ -f "${query_fasta}" ]; then
         python3 - "${query_fasta}" "\${clean_query_id}_all_exonerate_protein.fasta" << 'PYEOF'
@@ -209,7 +211,7 @@ tmp = out_path + ".tmp"
 with open(tmp, "w") as out:
     for name, seq in seqs.items():
         prot = translate(seq)
-        out.write(">" + name + "_query_prot\\n")
+        out.write(">" + name + "\\n")
         for i in range(0, len(prot), 60):
             out.write(prot[i:i+60] + "\\n")
     if os.path.exists(out_path):

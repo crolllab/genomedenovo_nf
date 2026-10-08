@@ -4,3 +4,4 @@ nf_output
 .nextflow*
 example/output*/
 work
+__pycache__/

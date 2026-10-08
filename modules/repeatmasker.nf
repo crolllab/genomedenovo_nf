@@ -12,6 +12,8 @@ process RepeatMasker {
     tuple val(sample_id), path("*_repeatmasker.gff"),    emit: gff
     tuple val(sample_id), path("*_repeatmasker.masked"), emit: masked
     tuple val(sample_id), path("*_repeatmasker.tbl"),    emit: summary
+    // The .out table carries the TE class/family (the GFF does not); used by SummarizeHitTEs
+    tuple val(sample_id), path("*_repeatmasker.out"),    emit: rm_out
 
     script:
     // Use a filesystem-safe ID for file names; original name is preserved as val(sample_id)
@@ -27,5 +29,6 @@ process RepeatMasker {
     mv input_scaffolds.fasta.out.gff "${safe_id}_repeatmasker.gff"
     mv input_scaffolds.fasta.masked  "${safe_id}_repeatmasker.masked"
     mv input_scaffolds.fasta.tbl     "${safe_id}_repeatmasker.tbl"
+    mv input_scaffolds.fasta.out     "${safe_id}_repeatmasker.out"
     """
 }
