@@ -15,8 +15,11 @@ process SRAresolve {
     path "NCBI_download_urls.tsv", emit: url_file
 
     script:
+    // entrez-direct reads the key from NCBI_API_KEY (raises the request rate limit)
+    def api_key = params.NCBI_API_key ? "export NCBI_API_KEY='${params.NCBI_API_key}'" : ''
     """
     #!/bin/bash
+    ${api_key}
     
     # Clear output files
     > NCBI_SRR_PE_accessions.txt

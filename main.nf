@@ -46,7 +46,7 @@ workflow {
      local scaffolds: ${params.scaffolds}
      blast query    : ${params.blast_query}
      SRA ids file   : ${params.SRA_index}
-     NCBI API key   : ${params.NCBI_API_key}
+     NCBI API key   : ${params.NCBI_API_key ? 'set' : 'not set'}
      search tool    : ${params.search_tool}
      exonerate refine: ${params.exonerate_refine}
      padding        : ${params.padding} bp
