@@ -71,8 +71,9 @@ def safe_name(name):
     return re.sub(r'[^A-Za-z0-9._-]', '_', name)
 
 
-def parse_rm_out(path):
-    """Return {scaffold: [TE dict]} from a RepeatMasker .out table.
+def parse_rm_out(path, scaffolds):
+    """Return {scaffold: [TE dict]} from a RepeatMasker .out table, for the
+    given scaffolds only (the table of a whole genome can be very large).
 
     Header lines, the 'There were no repetitive sequences detected' message
     and any other line that does not parse are skipped.
@@ -81,7 +82,7 @@ def parse_rm_out(path):
     with open(path) as fh:
         for line in fh:
             f = line.split()
-            if len(f) < 15:
+            if len(f) < 15 or f[4] not in scaffolds:
                 continue
             try:
                 sw_score = int(f[0])
@@ -179,10 +180,18 @@ def main():
 
     rm_files = {os.path.basename(p)[:-len('_repeatmasker.out')]: p
                 for p in args.rm_out if p.endswith('_repeatmasker.out')}
-    rm_cache = {}
+    hits = read_hits(args.hits_tsv)
+
+    # Read each sample's table once, keeping only the TEs on its hit scaffolds
+    hit_scaffolds = {}
+    for sid, hit in hits:
+        if hit is not None:
+            hit_scaffolds.setdefault(safe_name(sid), set()).add(hit['scaffold'])
+    sample_tes = {name: parse_rm_out(rm_files[name], scaffolds)
+                  for name, scaffolds in hit_scaffolds.items() if name in rm_files}
 
     te_rows, summary_rows = [], []
-    for sid, hit in read_hits(args.hits_tsv):
+    for sid, hit in hits:
         base = {'sample_id': sid, 'query_id': args.query_id}
         if hit is None:
             row = dict(base, hit_id='NA', position='no_hit')
@@ -192,15 +201,12 @@ def main():
         base.update(hit_id=hit['hit_id'], scaffold=hit['scaffold'], hit_start=hit['start'],
                     hit_end=hit['end'], hit_strand=hit['strand'])
 
-        rm_path = rm_files.get(safe_name(sid))
-        if rm_path is None:
+        if safe_name(sid) not in sample_tes:
             # RepeatMasker did not produce a table for this sample
             te_rows.append(dict(base, position='no_repeatmasker_output'))
             summary_rows.append(dict(base))
             continue
-        if rm_path not in rm_cache:
-            rm_cache[rm_path] = parse_rm_out(rm_path)
-        tes = rm_cache[rm_path].get(hit['scaffold'], [])
+        tes = sample_tes[safe_name(sid)].get(hit['scaffold'], [])
 
         if not tes:
             te_rows.append(dict(base, position='none'))

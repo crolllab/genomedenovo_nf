@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- **TEs near the hit missing on large datasets.** The step loaded the RepeatMasker tables of all samples completely and ran out of memory (its 2 GB limit did not grow on retry), so the `*_scaffold_TEs*.tsv` tables were silently not written. It now keeps only the TEs on the hit scaffolds, and its memory grows on retry.
 - **`--NCBI_API_key` had no effect.** The key was printed but never passed to the SRA lookup. It is now given to `entrez-direct` (`NCBI_API_KEY`), and the startup summary shows only whether a key is set instead of the key itself.
 - **BLAST hit tree failed or was unreadable.** BLAST hits were named only by scaffold location, so tree tips did not show the sample, and IQ-TREE failed when two samples shared a scaffold name and location.
 - **Exonerate with nucleotide CDS queries returned no hits.** Nucleotide queries now use the `coding2genome` model instead of `est2genome`. `est2genome` reported the aligned region as UTR/exon and emitted no CDS features, so nothing was extracted even when the exon structure was found. Separate alignments on the same target are no longer merged into one gene model, and only the best-scoring model is kept where alignments overlap.
