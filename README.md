@@ -32,6 +32,7 @@ Pipeline to assemble and query draft genomes
 | CDS integrity (full-length / truncated) | custom, `Exonerate` | `--search_tool exonerate` |
 | Isoforms and isoform trees | custom, `IQ-TREE`, R `ape` | `--search_tool exonerate` |
 | Per-query alignments and trees | `MAFFT`, `IQ-TREE` | `--blast_query` |
+| Paralog check of the hits | `BLAST+`, custom | `--query_paralog` |
 | Reference mapping | `BWA-mem2`, `SAMtools` | `--reference_genome` (reads given) |
 | Query locus coverage | `BLAST+`, `SAMtools` | `--locus_coverage` |
 | TE annotation and TEs near hits | `RepeatMasker` | `--repeat_library` |
@@ -109,7 +110,9 @@ SRR1234567,Isolate_A
 E1,Iran_2024_A3ghp1i
 ```
 
-Final names must be unique, also after characters outside `[A-Za-z0-9._-]` are replaced by `_` (`isolate 1` and `isolate_1` clash). The pipeline checks this before assembly and stops with a list of the clashing inputs.
+Inside the pipeline, and in all outputs, characters outside `[A-Za-z0-9._-]` are replaced by `_` (`Iran_2024_Kch(2)12-1g` → `Iran_2024_Kch_2_12-1g`), so that sample names are safe in file names, FASTA headers and trees. `<outdir>/sample_names.tsv` lists every input with its `--SRR_sample_map` name and final sample name.
+
+Final names must be unique (`isolate 1` and `isolate_1` clash). The pipeline checks this before assembly and stops with a list of the clashing inputs.
 
 #### Scaffold input
 
@@ -127,6 +130,9 @@ Final names must be unique, also after characters outside `[A-Za-z0-9._-]` are r
 | `--search_tool` | `blast` | `blast`: BLAST only. `exonerate`: BLAST, then Exonerate spliced alignment for exact CDS and protein, CDS integrity and isoforms. Nucleotide queries must then be a **mature CDS** (no introns); the run stops if the query has in-frame stop codons. |
 | `--exonerate_refine` | `region` | Exonerate alignment refinement: `region` (re-align the hit region with full dynamic programming, so exons of divergent alleles are not lost), `full` (refine on the whole extracted window) or `none`. |
 | `--padding` | `500` | bp added on both sides of the BLAST hit when extracting it. The padded region is also the window searched by Exonerate and the locus used by `--locus_coverage`. |
+| `--min_align_prop` | `0.8` | Per-query trees leave out sequences covering less than this proportion of the core alignment (the columns of the query reference, or of at least half of the sequences). The query reference is always kept. `0` keeps all sequences. See [methods](#alignment-filter). |
+| `--query_paralog` | – | FASTA with known paralogs of the queries, switching on the [paralog check](#paralog-check). Name each paralog after the first word of its query header plus `_paralog1`, `_paralog2`, … (`>GeneA_paralog1` for the query `>GeneA …`); paralogs must be of the same type (nucleotide/protein) as their query. Queries without paralogs are not checked. |
+| `--paralog_ambiguous_ratio` | `0.95` | Paralog check: a hit is called `ambiguous` when the second-best reference reaches this fraction of the best bit score. |
 
 ### Assembly QC
 
@@ -178,6 +184,7 @@ Folders are numbered in pipeline order; a folder exists only if its step ran. `{
 - `pipeline_execution_stats.tsv` / `.txt`: Run time and resources per step
 - `pipeline_trace.txt`: Nextflow trace of every task
 - `NCBI_SRR_PE_accessions.txt`, `NCBI_SRR_SE_accessions.txt`, `NCBI_download_urls.tsv`: Resolved SRA runs and their download sources (`--SRA_index`)
+- `sample_names.tsv`: Every input (`input_id`), its `--SRR_sample_map` name (`renamed_to`) and the sample name used in all outputs (`sample_id`)
 
 ### 1 — Read QC (`1_fastq_stats/`)
 - `fastp_summary.tsv` / `.txt`: Read metrics before and after trimming for all samples
@@ -205,6 +212,7 @@ Folders are numbered in pipeline order; a folder exists only if its step ran. `{
 - `{query_id}/{query_id}_all_blast_hits_summary.tsv`: Hit coordinates, identity, e-value and bit score per sample (`no_hits_found` without a hit)
 - `{query_id}/blast_results/{sample_id}_blast_results.tsv`: Raw BLAST tabular output
 - `{query_id}/hit_sequences/{sample_id}_top_hits.fasta` / `_top_hits_info.tsv`: Extracted (padded) hit region per sample, named by its scaffold location
+- `{query_id}/paralog_check/{sample_id}_paralog_blast_results.tsv`: Raw BLAST output of the query's paralogs (`--query_paralog`)
 
 ### 7 — Exonerate (`7_exonerate_hits/`, with `--search_tool exonerate`)
 - `exonerate_summary_merged.tsv`: Exonerate results for all queries and samples
@@ -218,11 +226,11 @@ Folders are numbered in pipeline order; a folder exists only if its step ran. `{
 - `*_mafft_alignment_log.txt`: MAFFT log, including the sequences MAFFT reverse-complemented
 
 ### 9 — Per-query trees (`9_phylogenies/`)
-IQ-TREE trees, built when an alignment has at least 3 unique sequences. Each tree comes as `.treefile` (ML tree), `.contree` (bootstrap support, with ≥ 4 unique sequences), `.iqtree` (report) and `.log`.
+IQ-TREE trees, built when an alignment has at least 3 unique sequences after [partially aligned sequences are left out](#alignment-filter). Each tree comes as `.treefile` (ML tree), `.contree` (bootstrap support, with ≥ 4 unique sequences), `.iqtree` (report) and `.log`, together with `.alignment_filter.tsv` (per sequence: residues in the core columns, number of core columns and their basis, proportion, kept or not) and `.filtered_alignment.fasta` (the tree input).
 - `blast/{query_id}/{query_id}_blast_phylogeny.*`: BLAST hits, one tip per sample
 - `exonerate/{query_id}/{query_id}_{cds,protein}_phylogeny.*`: Exonerate CDS / protein, one tip per sample
 - `exonerate/{query_id}/{query_id}_{cds,protein}_isoform_phylogeny.*`: CDS / protein isoforms, one tip per isoform
-- **`exonerate/{query_id}/{query_id}_{cds,protein}_isoform_phylogeny.pdf`**: The isoform trees drawn midpoint-rooted. Tips read `Isoform N (n = samples)`; isoforms found only in truncated (orange) or stop-lost (blue) sequences are coloured, the query reference is marked with a triangle, and bootstrap support is shown at the nodes.
+- **`exonerate/{query_id}/{query_id}_{cds,protein}_isoform_phylogeny.pdf`**: The isoform trees drawn midpoint-rooted. Tips read `Isoform N (n = samples)`; isoforms found only in truncated (orange), stop-lost (blue) or partial (grey, contig edge) sequences are coloured, the query reference is marked with a triangle, and bootstrap support is shown at the nodes.
 
 ### 10 — Reference mapping (`10_bwa_mapping/`)
 - `bwa_mapping_summary.tsv` / `.txt`: Mapping statistics for all samples
@@ -246,23 +254,33 @@ The hit is the Exonerate gene model with `--search_tool exonerate`, otherwise th
 - **`{query_id}_scaffold_TEs.tsv`**: One row per TE on the hit scaffold, ordered 5'→3'. Columns: `sample_id`, `hit_id` (`{sample}_{n}` for several gene models), `query_id`, `scaffold`, `hit_start`, `hit_end`, `hit_strand`, `te_name`, `te_class`, `te_start`, `te_end`, `te_strand`, `te_orientation` (`same`/`opposite` strand as the hit), `te_length`, `position` (`upstream`, `downstream`, `overlap`; `none` = no TE on the scaffold, `no_hit` = sample without hit), `distance_bp`, `perc_div` (divergence from the consensus), `sw_score`, `te_id`
 - `{query_id}_scaffold_TEs_summary.tsv`: One row per hit: number of TEs on the scaffold, overlapping TEs, nearest upstream and downstream TE with distance
 
+<a id="paralog-check-table"></a>
+#### Paralog check (`--query_paralog`)
+- **`{query_id}_paralog_check.tsv`**: One row per sample, for the hit reported for the query (the BLAST hit locus, which is also the region searched by Exonerate). Columns:
+  - `sample_id`, `query_id`, `hit_scaffold`, `hit_start`, `hit_end`
+  - `closest_reference` (query or paralog with the highest bit score at the hit locus), `call` (`query`, `paralog`, `ambiguous` = second best ≥ `--paralog_ambiguous_ratio` × best, `no_hit`), `best_bitscore`, `second_reference`, `second_bitscore`, `score_ratio`
+  - `query_` / `paralogN_` `bitscore`, `identity_pct`, `coverage_pct`: score of each reference at the hit locus
+  - `paralogN_best_locus`, `paralogN_best_locus_is_hit`: where the paralog's own best hit lies in the sample, and whether that is the query's hit locus (`no` = the sample has a separate copy for the paralog)
+
 #### Isoforms (`--search_tool exonerate`)
 Isoform numbers are shared by all files of a query (see [isoform numbering](#isoforms)).
 
 - `{query_id}_isoforms.tsv`: The query reference and every intact sequence. Columns: `sample_id`, `cds_isoform`, `protein_isoform`, `cds_sequence`, `protein_sequence`
 - **`{query_id}_isoforms_incl_truncated.tsv`**: Every sequence, including truncated ones and samples without a hit (`no_hit`). Columns:
-  - `sample_id`, `cds_isoform`, `protein_isoform`, `status` (`reference`, `full_length`, `truncated`, `extended` = stop codon lost only, `no_hit`)
-  - `truncation_cause`: `nucleotide_deletion` (part of the query is missing from the contig), `ORF_mutation` (the sequence is there but the reading frame is disrupted), both, or `none`
-  - `deletion_types`: `5prime_deletion` / `3prime_deletion` (segment missing, contig continues with unrelated sequence), `contig_end`, `assembly_gap` (N run), `internal_deletion` (in-frame deletion ≥ 10 aa)
+  - `sample_id`, `cds_isoform`, `protein_isoform`, `status` (`reference`, `full_length`, `truncated`, `extended` = stop codon lost only, `partial` = incomplete only because the contig ends or an assembly gap, `no_hit`)
+  - `truncation_cause`: `contig_edge` (the gene runs off the contig), `assembly_gap` (N run next to the missing part), `nucleotide_deletion` (part of the query is missing although the contig continues), `ORF_mutation` (the sequence is there but the reading frame is disrupted), several joined by `+`, or `none`. The first two are limits of the assembly, the last two evidence of a truncated gene.
+  - `contig_edge`: contig end(s) the gene model or its reading frame runs into: `5prime`, `3prime`, `5prime,3prime` or `none`
+  - `orf_end`: how the encoded reading frame ends: `expected_stop`, `premature_stop` (ORF cut short), `late_stop` (read-through to a later stop), `contig_end` (no stop codon before the contig ends; `observed_protein_length` is then a minimum, `>=N`)
+  - `deletion_types`: `5prime_deletion` / `3prime_deletion` (segment missing, contig continues with unrelated sequence), `internal_deletion` (in-frame deletion ≥ 10 aa)
   - `orf_mutation_types`: `frameshift`, `premature_stop`, `start_lost`, `stop_lost`, `noncanonical_splice_site`, `segment_outside_ORF` (the unaligned query segment is found on the contig outside the reading frame, e.g. an unbridged frameshift or a retained intron)
-  - `contig`, `contig_length`, `strand`, `gene_start`, `gene_end`, `exon_count`: gene model location
+  - `contig`, `contig_length`, `strand`, `gene_start`, `gene_end`, `exon_count`: gene model location; `contig_flank_5prime_nt`, `contig_flank_3prime_nt`: contig sequence beyond the first / last coding base, in gene orientation (small values mean the gene sits at a contig end)
   - `aligned_query_start_aa`, `aligned_query_end_aa`, `query_coverage_pct`, `aa_identity_pct`: alignment extent and similarity
   - `observed_protein_length`: protein actually encoded (first aligned codon to first stop); `in_frame_query_aa` / `in_frame_query_pct`: query residues encoded in frame before that stop
   - `start_codon`, `stop_codon`, `n_frameshifts`, `n_premature_stops`, `n_noncanonical_splice_sites`, `n_inframe_indels`, `first_disruption_aa`
   - `mutation_details`: readable list of mutations (e.g. `p.Q46* nonsense codon TAG`, `p.C36fs frameshift -1 nt (deletion in contig)`)
-  - `notes`: e.g. termini Exonerate left unaligned although the ORF is intact, telomeric repeats or assembly gaps in the flank, low-confidence frameshift calls
+  - `notes`: e.g. termini Exonerate left unaligned although the ORF is intact, telomeric repeats or assembly gaps in the flank, a deletion called close to a contig end (`3prime_contig_end_Nnt_beyond_alignment`), low-confidence frameshift calls
   - `cds_sequence`, `protein_sequence`
-- **`{query_id}_isoform_mutations.tsv`**: One row per mutation with the isoform IDs of the sequence carrying it, event class (`ORF_mutation`, `nucleotide_deletion`, `in_frame_indel`), type, query residues, contig coordinates, reference and observed codon/residue, indel size and description
+- **`{query_id}_isoform_mutations.tsv`**: One row per mutation with the isoform IDs of the sequence carrying it, event class (`ORF_mutation`, `nucleotide_deletion`, `contig_edge`, `assembly_gap`, `in_frame_indel`), type, query residues, contig coordinates, reference and observed codon/residue, indel size and description
 - `{query_id}_{cds,protein}_isoforms.fasta`: One sequence per isoform, named `cds_isoform_N` / `protein_isoform_N`, with the number of samples (`n_samples=`) and their status (`status=`) in the header
 - `{query_id}_{cds,protein}_isoforms_aligned.fasta`: The isoforms as aligned rows; input of the isoform trees
 
@@ -282,16 +300,23 @@ Isoform numbers are shared by all files of a query (see [isoform numbering](#iso
 
 **CDS integrity.** Each gene model is compared codon by codon with the query to find frameshifts, premature stops, lost start/stop codons, non-canonical splice sites and in-frame indels. Query segments that Exonerate left unaligned are looked up on the full contig:
 - An in-frame start or stop codon at the expected distance means a divergent but intact end.
-- Otherwise the segment is re-aligned to the flanking sequence. If it is found, the sequence is present but outside the reading frame: an ORF mutation. If it is not found, it is a nucleotide-level deletion. Contig ends, assembly gaps and telomeric repeats are flagged.
+- If the contig ends before the missing segment (or the stop codon) could fit, the gene runs off the contig: a contig edge. The model is then `partial`, not `truncated`, unless it also carries a deletion or ORF mutation. An assembly gap next to the missing segment is treated alike.
+- Otherwise the segment is re-aligned to the flanking sequence. If it is found, the sequence is present but outside the reading frame: an ORF mutation. If it is not found, it is a nucleotide-level deletion. Telomeric repeats in the flank and deletions close to a contig end are noted.
+
+Separately, the model is translated from its first codon to find where the reading frame actually ends (`orf_end`): at the expected stop codon (within 3 codons, more for divergent termini), earlier (cut short), later, or not before the contig end.
 
 <a id="isoforms"></a>**Isoforms.** Identical aligned CDS (or protein) sequences form one isoform. Numbering follows frequency:
 1. Isoforms carried by at least one intact sequence, ordered by the number of sample sequences carrying them; the most frequent is 1. Ties keep alignment order, and the query reference is not counted.
 2. The query reference, if no intact sample shares its sequence.
-3. Isoforms found only in truncated or stop-lost sequences, again by frequency.
+3. Isoforms found only in truncated, stop-lost or partial sequences, again by frequency.
 
 The intact-only table therefore numbers consecutively.
 
 **Alignments and per-query trees.** BLAST hits, Exonerate CDS and Exonerate proteins are aligned per query with MAFFT (`--auto --adjustdirection`). For protein queries, the query is left out of the BLAST hit alignment, since the hits are nucleotide. IQ-TREE builds a tree from every alignment with ≥ 3 unique sequences (`-m MFP`; 1000 ultrafast bootstraps with ≥ 4 unique sequences). Isoform trees use one aligned row per isoform and are drawn as PDFs with R/`ape`.
+
+<a id="alignment-filter"></a>**Alignment filter.** Before a tree is built, sequences that align only partially are left out: a sequence must have residues in at least `--min_align_prop` (default 0.8) of the core alignment columns. The core columns are those where the query reference has a residue; alignments without the reference (BLAST hits of protein queries, isoform alignments) use the columns where at least half of the sequences have a residue. Measuring against the core rather than all columns keeps a single long outlier (a TE insertion, or a hit spanning two loci) from pushing every other sequence below the threshold; the hit flanks added by `--padding` do not count either. The query reference is always kept. The decision for every sequence is listed in `.alignment_filter.tsv` next to the tree (`core_basis` says which core was used).
+
+<a id="paralog-check"></a>**Paralog check.** With `--query_paralog`, the paralogs of each query are BLASTed against every assembly with the same program and settings as the query. At the hit locus reported for the query (the merged BLAST span on the best scaffold), the hits of the query and of each paralog are scored: bit scores of non-overlapping hits are summed (greedy by score), with their length-weighted identity and the share of the reference they cover. The reference with the highest score is the closest; the call is `ambiguous` when the second best reaches `--paralog_ambiguous_ratio` of it. A `paralog` call means the sample's hit is more likely a copy of that paralog than of the query, e.g. when the query gene itself is missing. See [the output table](#paralog-check-table).
 
 **Reference mapping and locus coverage.** Trimmed reads are mapped with BWA-mem2, filtered at MAPQ ≥ 10, sorted and indexed. For `--locus_coverage`, the query is BLASTed against the reference to find its locus. Per sample, the mean and median depth over the locus ± `--padding` (MAPQ ≥ 20) are compared with the mean and SD of per-base depth over the whole genome.
 

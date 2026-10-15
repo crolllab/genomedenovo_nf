@@ -1,20 +1,32 @@
 #!/usr/bin/env python3
 """
-Classify every Exonerate gene model of a sample as full-length or truncated,
-and describe the mutations responsible.
+Classify every Exonerate gene model of a sample as full-length, truncated or
+partial, and describe the mutations responsible.
 
-Two origins of truncation are distinguished:
+Four causes of an incomplete gene model are distinguished. The first two are
+limits of the assembly (the gene may well be intact in the genome), the last
+two are evidence of a truncated gene:
 
-  nucleotide_deletion -- part of the query CDS is absent from the contig:
-        a terminal query segment is missing (contig continues with unrelated
-        sequence), the contig ends / hits an assembly gap before the missing
-        segment could fit, or a large in-frame internal deletion.
+  contig_edge         -- the contig ends before the missing query segment (or
+        the stop codon) could fit: the gene runs off the contig.
+
+  assembly_gap        -- an assembly gap (N run) next to the missing segment.
+
+  nucleotide_deletion -- part of the query CDS is absent from the contig: a
+        terminal query segment is missing although the contig continues with
+        unrelated sequence, or a large in-frame internal deletion.
 
   ORF_mutation        -- the contig carries the query CDS (or the missing part
         is still found nearby) but the reading frame is disrupted: frameshift
         indels, premature stop codons, lost start or stop codons, non-canonical
         splice sites, or a query segment present on the contig but outside the
         ORF (unbridged frameshift / splice-site mutation / insertion).
+
+A model with only contig_edge / assembly_gap causes is 'partial', one with a
+nucleotide_deletion or ORF_mutation 'truncated' (or 'extended' when the stop
+codon is lost and nothing else). How the encoded ORF ends is reported apart
+(orf_end): at the expected stop, cut short by a premature stop, read through to
+a later stop, or running off the contig end without a stop codon.
 
 The Exonerate vulgar string is the primary evidence. It is walked codon by
 codon, mapping every query codon (nucleotide query) or residue (protein query)
@@ -49,8 +61,9 @@ from extract_exonerate_cds import CODON, parse_gff3_cds, rc
 
 SUMMARY_COLUMNS = [
     'sample_id', 'query_id', 'sequence_id', 'status', 'truncation_cause',
-    'deletion_types', 'orf_mutation_types', 'contig', 'contig_length', 'strand',
-    'gene_start', 'gene_end', 'exon_count', 'query_length_aa',
+    'contig_edge', 'orf_end', 'deletion_types', 'orf_mutation_types', 'contig',
+    'contig_length', 'strand', 'gene_start', 'gene_end',
+    'contig_flank_5prime_nt', 'contig_flank_3prime_nt', 'exon_count', 'query_length_aa',
     'aligned_query_start_aa', 'aligned_query_end_aa', 'query_coverage_pct',
     'aa_identity_pct', 'observed_protein_length', 'in_frame_query_aa', 'in_frame_query_pct',
     'start_codon', 'stop_codon', 'n_frameshifts', 'n_premature_stops',
@@ -65,6 +78,11 @@ EVENT_COLUMNS = [
 ]
 
 STOPS = {'TAA', 'TAG', 'TGA'}
+# Event classes that make a gene model incomplete; the first two are limits of
+# the assembly, the last two evidence of a truncated gene
+ASSEMBLY_CLASSES = ('contig_edge', 'assembly_gap')
+TRUNCATING_CLASSES = ASSEMBLY_CLASSES + ('nucleotide_deletion', 'ORF_mutation')
+NEAR_EDGE_NT = 300        # note when the contig ends this close beyond a missing segment
 LOCAL_WINDOW = 10         # codons either side of a frameshift for local identity
 LOW_LOCAL_IDENTITY = 50.0
 CANONICAL_INTRONS = {('GT', 'AG'), ('GC', 'AG'), ('AT', 'AC')}
@@ -197,8 +215,9 @@ class Context:
 
     def span(self, p0, p1):
         """Contig coordinates (start, end) of oriented half-open [p0, p1)."""
-        if p1 <= p0:
-            p1 = p0 + 1
+        n = len(self.seq)
+        p0 = min(max(p0, 0), n - 1)
+        p1 = min(max(p1, p0 + 1), n)
         a, b = self.to_contig(p0), self.to_contig(p1 - 1)
         return (min(a, b), max(a, b))
 
@@ -433,6 +452,7 @@ class Model:
         self.nt = nucleotide_query
         self.events = []
         self.notes = []
+        self.edge_ends = set()          # '5prime' / '3prime' ends running off the contig
         self.query = query_seq
 
         if nucleotide_query:
@@ -666,7 +686,13 @@ class Model:
         m = self.expected - 1 - last     # sense codons still expected
         if m <= 0:
             n, stop = self.read_frame(l)
-            if stop == l:
+            if l + 3 > len(self.ctx.seq):
+                # The coding sequence reaches the contig end: the stop codon
+                # position itself is not in the assembly
+                self.stop_status = 'beyond_contig_end'
+                self.add_edge('3prime', self.expected, self.expected + 1, l, len(self.ctx.seq),
+                              '(stop)', f'C-terminal stop codon missing: {self.edge_reason(len(self.ctx.seq) - l)}')
+            elif stop == l:
                 self.stop_status = self.ctx.seq[l:l + 3]
             else:
                 self.stop_status = 'lost'
@@ -707,8 +733,18 @@ class Model:
         notes = self.flank_notes(flank[:need + 500] if end == '3prime' else flank[-(need + 500):])
         label = 'N-terminal' if end == '5prime' else 'C-terminal'
         where = f'query aa {k0 + 1}-{k1} ({m} aa, {need} nt)'
+        # The 3' segment also needs room for the stop codon
+        edge_need = need + 3 if end == '3prime' else need
+        p0, p1 = (max(0, anchor - 1), anchor) if end == '5prime' else (anchor, anchor + 1)
 
         if m < MIN_SEGMENT_AA:
+            # Too short to re-align. If the contig ends before the missing
+            # codons (and stop codon) could fit, it is a contig edge, not a
+            # lost start / stop codon.
+            if flank_len < edge_need:
+                ref = self.ref_aa[k0:k1] if end == '5prime' else self.ref_aa[k0:k1] + '(stop)'
+                self.add_edge(end, k0, k1, p0, p1, ref, f'{label} {where} missing: {self.edge_reason(flank_len)}')
+                return
             # Too short to re-align: only the terminal codon is unaccounted for
             if end == '5prime':
                 self.add('ORF_mutation', 'start_lost', k0, k1, max(0, anchor - 3), anchor,
@@ -770,24 +806,36 @@ class Model:
                      f'({100 * hit["frac"]:.0f}% of segment re-aligned): {mech}{stop_txt}')
             return
 
-        if self.ctx.exact and flank_len < need:
-            etype, why = 'contig_end', f'contig ends {flank_len} nt beyond the alignment'
-        elif not self.ctx.exact and flank_len < need:
-            etype, why = 'window_end', (f'extracted window ends {flank_len} nt beyond the '
-                                        'alignment (assembly not supplied)')
-        elif 'assembly_gap' in notes:
-            etype, why = 'assembly_gap', 'assembly gap (N run) in the flanking sequence'
+        ref = self.ref_aa[k0:k1] if m <= 30 else f'{m}aa'
+        if flank_len < need:
+            self.add_edge(end, k0, k1, p0, p1, ref, f'{label} {where} missing: {self.edge_reason(flank_len)}')
+            return
+        if 'assembly_gap' in notes:
+            ecls, etype, why = 'assembly_gap', 'assembly_gap', 'assembly gap (N run) in the flanking sequence'
         else:
-            etype, why = f'{end}_deletion', 'segment absent; contig continues with unrelated sequence'
+            ecls, etype, why = ('nucleotide_deletion', f'{end}_deletion',
+                                'segment absent; contig continues with unrelated sequence')
+            if flank_len - need < NEAR_EDGE_NT:
+                why += f' (contig ends {flank_len} nt beyond the alignment)'
+                self.notes.append(f'{end}_contig_end_{flank_len}nt_beyond_alignment')
         if 'telomeric_repeats' in notes:
             why += ' (telomeric repeats in flank)'
-        p0, p1 = (max(0, anchor - 1), anchor) if end == '5prime' else (anchor, anchor + 1)
         if end == '3prime' and self.ext_downstream and self.ext_downstream[1] is not None:
             n, sp = self.ext_downstream
             why += f'; ORF continues {n} codon(s) into flank then {seq[sp:sp + 3]}'
-        self.add('nucleotide_deletion', etype, k0, k1, p0, p1,
-                 self.ref_aa[k0:k1] if m <= 30 else f'{m}aa', '-', -need,
+        self.add(ecls, etype, k0, k1, p0, p1, ref, '-', -need,
                  f'{label} {where} missing: {why}')
+
+    def edge_reason(self, flank_len):
+        if self.ctx.exact:
+            return f'contig ends {flank_len} nt beyond the alignment'
+        return f'extracted window ends {flank_len} nt beyond the alignment (assembly not supplied)'
+
+    def add_edge(self, end, k0, k1, p0, p1, ref, desc):
+        """The gene runs off the contig (or the extracted window) at *end*."""
+        self.edge_ends.add(end)
+        self.add('contig_edge', 'contig_end' if self.ctx.exact else 'window_end',
+                 k0, k1, p0, p1, ref, '-', None, desc)
 
     def observed_protein(self):
         """Translate the actual model (raw bases, then flank) from its first codon."""
@@ -796,6 +844,7 @@ class Model:
         codons = self.walk.codons
         self.obs_len = None
         self.obs_stop_aa = None
+        self.orf_end = 'NA'
         self.in_frame = 0
         if self.first_aa is None:
             return
@@ -814,6 +863,7 @@ class Model:
             if cod in STOPS:
                 self.obs_len = n
                 self.obs_stop_aa = self.aa_at_ctx(bases[j])
+                stop_q = self.obs_stop_aa + 1 if self.obs_stop_aa is not None else None
                 break
             translated.add(trip)
             n += 1
@@ -821,8 +871,23 @@ class Model:
         else:
             # No stop within the model: continue in frame into the flank
             p = bases[j] if j < len(bases) else bases[-1] + 1
-            ext, _ = self.read_frame(p)
+            ext, stop = self.read_frame(p)
             self.obs_len = n + ext
+            last = self.aa_at_ctx(p - 1)
+            stop_q = last + 1 + ext if (stop is not None and last is not None) else None
+            if stop is None:
+                self.orf_end = 'contig_end'
+                self.edge_ends.add('3prime')
+        # Where the ORF stops, relative to the expected stop codon (query
+        # residue index); the tolerance follows the divergent-terminus rule
+        if stop_q is not None:
+            tol = self.tol(max(0, self.expected - 1 - self.last_aa))
+            if stop_q < self.expected - tol:
+                self.orf_end = 'premature_stop'
+            elif stop_q > self.expected + tol:
+                self.orf_end = 'late_stop'
+            else:
+                self.orf_end = 'expected_stop'
         # Reference residues encoded in the correct frame before the stop
         self.in_frame = sum(1 for k, pos in codons.items()
                             if k < self.expected and tuple(pos) in translated)
@@ -836,13 +901,13 @@ class Model:
 
         # Frameshift / splice defects truncate the product even when the
         # observed length is long; stop_lost alone means an extended protein.
-        causes = []
-        if del_types:
-            causes.append('nucleotide_deletion')
-        if orf_types:
-            causes.append('ORF_mutation')
+        # A model incomplete only because of the assembly (contig end, gap) is
+        # partial: there is no evidence that the gene itself is truncated.
+        causes = [c for c in TRUNCATING_CLASSES if any(e['event_class'] == c for e in ev)]
         if not causes:
             status = 'full_length'
+        elif not del_types and not orf_types:
+            status = 'partial'
         elif not del_types and set(orf_types) == {'stop_lost'}:
             status = 'extended'
         else:
@@ -852,7 +917,7 @@ class Model:
         obs = self.obs_len
         full_start = self.qa0 == 0 or self.start_status.startswith('ATG(unaligned')
         obs_txt = str(obs) if obs is not None else 'NA'
-        if obs is not None and not full_start:
+        if obs is not None and (not full_start or self.orf_end == 'contig_end'):
             obs_txt = f'>={obs}'
 
         if status == 'truncated' and self.obs_stop_aa is not None and obs is not None \
@@ -860,12 +925,10 @@ class Model:
             self.notes.append(f'protein_ends_at_query_aa_{self.obs_stop_aa + 1}')
 
         disrupt = [e['query_aa_start'] for e in ev
-                   if e['event_class'] in ('ORF_mutation', 'nucleotide_deletion')
-                   and e['query_aa_start'] != 'NA']
+                   if e['event_class'] in TRUNCATING_CLASSES and e['query_aa_start'] != 'NA']
         first_disrupt = min(disrupt) if disrupt else 'NA'
 
-        detail = '; '.join(e['description'] for e in ev
-                           if e['event_class'] in ('ORF_mutation', 'nucleotide_deletion'))
+        detail = '; '.join(e['description'] for e in ev if e['event_class'] in TRUNCATING_CLASSES)
         minor = [e for e in ev if e['event_class'] == 'in_frame_indel']
         if minor:
             detail = '; '.join(filter(None, [detail, f'{len(minor)} minor in-frame indel(s): ' +
@@ -873,17 +936,22 @@ class Model:
 
         raw = self.walk.raw
         spans = [self.ctx.to_contig(p) for p in (raw[0], raw[-1])] if raw else ['NA', 'NA']
+        # Contig sequence beyond the coding part of the model, in gene orientation
+        flanks = [raw[0], len(self.ctx.seq) - 1 - raw[-1]] if raw and self.ctx.exact else ['NA', 'NA']
+        edge = ','.join(e for e in ('5prime', '3prime') if e in self.edge_ends) or 'none'
         coverage = 100.0 * max(0, self.qa1 - self.qa0) / self.expected if self.expected else None
 
         return {
             'sample_id': sample_id, 'query_id': query_id, 'sequence_id': self.header,
             'status': status, 'truncation_cause': '+'.join(causes) or 'none',
+            'contig_edge': edge, 'orf_end': self.orf_end,
             'deletion_types': ','.join(del_types) or 'none',
             'orf_mutation_types': ','.join(orf_types) or 'none',
             'contig': self.ctx.contig,
             'contig_length': self.ctx.length if self.ctx.exact else 'NA',
             'strand': self.ctx.strand if self.ctx.exact else self.blk['t_strand'],
             'gene_start': spans[0], 'gene_end': spans[1],
+            'contig_flank_5prime_nt': flanks[0], 'contig_flank_3prime_nt': flanks[1],
             'exon_count': len(self.walk.introns) + 1,
             'query_length_aa': self.expected,
             'aligned_query_start_aa': self.qa0 + 1, 'aligned_query_end_aa': self.qa1,

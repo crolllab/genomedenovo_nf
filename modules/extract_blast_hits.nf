@@ -25,8 +25,10 @@ process ExtractBlastHits {
     # Create header for hit info file
     echo -e "sample_id\tquery_id\tsubject_id\tstrand\tpercent_identity\talignment_length\tquery_start\tquery_end\tsubject_start\tsubject_end\tevalue\tbitscore" > "${sample_id}_top_hits_info.tsv"
     
-    # Check if BLAST results file exists and is not empty
-    if [ ! -s "${blast_results}" ]; then
+    # Check if BLAST results file exists and is not empty. Staged input paths
+    # are backslash-escaped by Nextflow and must stay unquoted (quoted, a name
+    # such as 'Iran_2024_Kch(2)12-1g_blast_results.tsv' is not found).
+    if [ ! -s ${blast_results} ]; then
         touch "${sample_id}_top_hits.fasta"
         exit 0
     fi
@@ -72,7 +74,7 @@ process ExtractBlastHits {
             # Output merged span (sstart=min, send=max — always forward)
             print f[1]"\t"f[2]"\t"f[3]"\t"f[4]"\t"f[5]"\t"f[6]"\t"f[7]"\t"f[8]"\t"min_c"\t"max_c"\t"f[11]"\t"f[12]"\t"strand
         }
-    }' "${blast_results}" > top_hits.tsv
+    }' ${blast_results} > top_hits.tsv
     
     # Check if we have any hits
     if [ ! -s top_hits.tsv ]; then
@@ -81,7 +83,7 @@ process ExtractBlastHits {
     fi
     
     # Create FASTA index
-    samtools faidx "${scaffolds_fasta}"
+    samtools faidx ${scaffolds_fasta}
     
     # Process each top hit
     > "${sample_id}_top_hits.fasta"
@@ -105,7 +107,7 @@ process ExtractBlastHits {
         
         # Apply padding - extend coordinates by PADDING bp on both sides
         # Get scaffold length from FASTA index
-        scaffold_len=\$(awk -v seq="\$sseqid" '\$1==seq {print \$2}' "${scaffolds_fasta}.fai")
+        scaffold_len=\$(awk -v seq="\$sseqid" '\$1==seq {print \$2}' ${scaffolds_fasta}.fai)
         
         # Sanity check: Ensure scaffold length was found
         if [ -z "\$scaffold_len" ] || [ "\$scaffold_len" -lt 1 ]; then
@@ -148,7 +150,7 @@ process ExtractBlastHits {
         fi
         
         # Extract sequence using samtools faidx with proper coordinate format
-        if samtools faidx "${scaffolds_fasta}" "\${sseqid}:\${start}-\${end}" > temp_hit.fasta 2>temp_samtools_error.log; then
+        if samtools faidx ${scaffolds_fasta} "\${sseqid}:\${start}-\${end}" > temp_hit.fasta 2>temp_samtools_error.log; then
             # Extract just the sequence (no header)
             tail -n +2 temp_hit.fasta | tr -d '\n' > temp_seq.txt
             
@@ -179,7 +181,7 @@ process ExtractBlastHits {
             rm temp_samtools_error.log 2>/dev/null || true
             
             # Fallback: Try extracting full sequence and manually cutting
-            if samtools faidx "${scaffolds_fasta}" "\${sseqid}" 2>/dev/null | tail -n +2 | tr -d '\n' > temp_full_seq.txt; then
+            if samtools faidx ${scaffolds_fasta} "\${sseqid}" 2>/dev/null | tail -n +2 | tr -d '\n' > temp_full_seq.txt; then
                 # Get length of sequence
                 seqlen=\$(wc -c < temp_full_seq.txt)
                 

@@ -34,6 +34,7 @@ include { IQtreeAlignmentPhylogeny as IQtreeCdsIsoformPhylogeny } from '../modul
 include { IQtreeAlignmentPhylogeny as IQtreeProteinIsoformPhylogeny } from '../modules/iqtree_phylogeny'
 include { PlotIsoformTree } from '../modules/plot_isoform_tree'
 include { SummarizeHitTEs } from '../modules/summarize_hit_tes'
+include { BLASTparalogs; ParalogCheck } from '../modules/paralog_check'
 include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from '../modules/locus_coverage'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
@@ -107,6 +108,73 @@ workflow denovo_query {
         exit 1, "ERROR: --locus_coverage requires read input (--reads or --SRA_index) to produce BAM files for depth analysis."
     }
 
+    def min_align_prop = params.min_align_prop.toString()
+    if (!(min_align_prop ==~ /^[0-9]*\.?[0-9]+$/) || (min_align_prop as BigDecimal) > 1) {
+        exit 1, "ERROR: --min_align_prop must be a number between 0 and 1. Got: '${params.min_align_prop}'."
+    }
+
+    // --query_paralog: paralogs of the queries, each named '<query>_paralogN'
+    // after the first word of a --blast_query header, and of the same type
+    if (params.query_paralog) {
+        if (!params.blast_query) {
+            exit 1, "ERROR: --query_paralog requires --blast_query."
+        }
+        if (!file(params.query_paralog).exists()) {
+            exit 1, "ERROR: Paralog query file does not exist: ${params.query_paralog}"
+        }
+        // [first word of header, nucleotide or protein] per record
+        def fastaRecords = { path ->
+            def recs = []
+            def name = null
+            def buf = new StringBuilder()
+            def flush = {
+                if (name != null) {
+                    def s = buf.toString().toUpperCase()
+                    def nuc = s.findAll { c -> 'ATGCUN'.contains(c as String) }.size()
+                    recs << [name, (s && nuc * 100 / s.size() >= 95) ? 'nucleotide' : 'protein']
+                }
+            }
+            file(path).eachLine { line ->
+                if (line.startsWith('>')) {
+                    flush()
+                    name = line.substring(1).trim().tokenize(' \t')[0]
+                    buf = new StringBuilder()
+                } else {
+                    buf.append(line.trim())
+                }
+            }
+            flush()
+            recs
+        }
+        def query_types = fastaRecords(params.blast_query).collectEntries { name, type -> [name, type] }
+        def paralog_recs = fastaRecords(params.query_paralog)
+        def problems = []
+        paralog_recs.each { name, type ->
+            def query = name.replaceAll(/_paralog[0-9]+$/, '')
+            if (query == name) {
+                problems << "'${name}': not named '<query>_paralogN'"
+            } else if (!query_types.containsKey(query)) {
+                problems << "'${name}': no query '${query}' in --blast_query"
+            } else if (query_types[query] != type) {
+                problems << "'${name}': ${type} sequence, but query '${query}' is ${query_types[query]}"
+            }
+        }
+        def dups = paralog_recs.countBy { name, _type -> name }.findAll { _name, n -> n > 1 }.keySet()
+        if (dups) problems << "duplicated names: ${dups.join(', ')}"
+        if (!paralog_recs) problems << "no sequences found"
+        if (problems) {
+            exit 1, """ERROR: Invalid --query_paralog file ${params.query_paralog}:
+${problems.collect { p -> '    ' + p }.join('\n')}
+  Name each paralog after the first word of its query header plus '_paralog1', '_paralog2', ...
+  (e.g. '>GeneA_paralog1' for the query '>GeneA ...'); paralogs must be of the same type as the query."""
+        }
+        def with_paralogs = paralog_recs.collect { name, _type -> name.replaceAll(/_paralog[0-9]+$/, '') } as Set
+        def without = query_types.keySet().findAll { q -> !with_paralogs.contains(q) }
+        if (without) {
+            log.warn "No paralogs given for query/queries ${without.join(', ')}: no paralog check for them."
+        }
+    }
+
     // When Exonerate is requested with a nucleotide query, verify the query is CDS
     // (no stop codons). If stop codons are found the query is likely genomic
     // DNA with introns, which Exonerate cannot handle correctly with coding2genome.
@@ -144,6 +212,29 @@ workflow denovo_query {
         }
     }
 
+    // ---------------------
+    // Sample names
+    // ---------------------
+    // Inside the pipeline every sample is named by its filesystem-safe name:
+    // characters outside [A-Za-z0-9._-] become '_' (e.g. 'Iran_2024_Kch(2)12-1g'
+    // -> 'Iran_2024_Kch_2_12-1g'). Sample names end up in file names, FASTA
+    // headers and tree tips, and characters such as '(' or ' ' broke steps
+    // silently. <outdir>/sample_names.tsv maps every input to its final name.
+    def safeName = { name -> name.toString().replaceAll(/[^A-Za-z0-9._-]/, '_') }
+
+    // Optional renaming (--SRR_sample_map), looked up by the original input ID
+    def rename_map = [:]
+    if (params.SRR_sample_map) {
+        file(params.SRR_sample_map).eachLine { line ->
+            def parts = line.trim().split(',', 2)
+            if (parts.size() == 2) rename_map[parts[0].trim()] = parts[1].trim()
+        }
+    }
+    // Local read samples are already safe-named when they are renamed, so the
+    // map is also consulted with the safe form of the original ID
+    def renamedTo = { id -> rename_map[id] ?: rename_map.find { k, _v -> safeName(k) == id }?.value ?: id }
+    def finalName = { id -> safeName(renamedTo(id)) }
+
     // Placeholder for fastp summary signal (only populated when reads are trimmed)
     fastp_summary_done = channel.empty()
 
@@ -165,6 +256,9 @@ workflow denovo_query {
 
     // Placeholder for BUSCO phylogeny signal (only populated when --phylo_tree is set)
     phylo_done = channel.empty()
+
+    // Placeholder for the paralog check signal (only populated when --query_paralog is set)
+    paralog_done = channel.empty()
 
     // Sample IDs of all inputs (SRA runs, local reads, local scaffolds), known
     // before assembly; used for the sample name collision check
@@ -215,7 +309,7 @@ workflow denovo_query {
                 flat: false,
                 size: 2
             )
-            local_pe_formatted = read_pairs_local_ch.map { sample_id, reads_list ->
+            local_pe_raw = read_pairs_local_ch.map { sample_id, reads_list ->
                 // Get basenames without extensions
                 def name1 = reads_list[0].name.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
                 def name2 = reads_list[1].name.replaceAll(/\.(fastq|fq)(\.gz)?$/, '')
@@ -232,7 +326,9 @@ workflow denovo_query {
 
                 return [commonPrefix, reads_list[0], reads_list[1], 'local']
             }
-            input_ids_ch = input_ids_ch.mix(local_pe_formatted.map { row -> row[0] })
+            input_ids_ch = input_ids_ch.mix(local_pe_raw.map { row -> row[0] })
+            // Trimming and assembly already use the safe name
+            local_pe_formatted = local_pe_raw.map { sample_id, r1, r2, source -> [safeName(sample_id), r1, r2, source] }
         } else {
             local_pe_formatted = channel.empty()
         }
@@ -382,39 +478,28 @@ workflow denovo_query {
     }
 
     // ---------------------
-    // Rename samples (optional)
+    // Final sample names: --SRR_sample_map renaming, then the safe form
     // ---------------------
-    def rename_map = [:]
-    if (params.SRR_sample_map) {
-        file(params.SRR_sample_map).eachLine { line ->
-            def parts = line.trim().split(',', 2)
-            if (parts.size() == 2) rename_map[parts[0].trim()] = parts[1].trim()
-        }
-        all_scaffolds_ch = all_scaffolds_ch
-            .map { sample_id, scaffolds ->
-                [rename_map.getOrDefault(sample_id, sample_id), scaffolds]
-            }
-    }
+    all_scaffolds_ch = all_scaffolds_ch
+        .map { sample_id, scaffolds -> [finalName(sample_id), scaffolds] }
 
     // ---------------------
-    // Sample name collision check
+    // Sample name collision check and name table
     // ---------------------
-    // Every sample needs a unique final name (after --SRR_sample_map), also
-    // once characters outside [A-Za-z0-9._-] are replaced by '_' as in output
-    // file names and sequence/tree names. Otherwise outputs overwrite each other
-    // and IQ-TREE rejects duplicated names. Runs on the input IDs, so the run
-    // stops before assembly (SRA runs are known once SRAresolve has finished).
+    // Every sample needs a unique final name. Otherwise outputs overwrite each
+    // other and IQ-TREE rejects duplicated names. Runs on the input IDs, so the
+    // run stops before assembly (SRA runs are known once SRAresolve has finished).
     input_ids_ch
-        .map { sample_id -> [rename_map.getOrDefault(sample_id, sample_id), sample_id] }
+        .map { input_id -> [finalName(input_id), input_id] }
         .collect(flat: false)
         .map { pairs ->
             def clashes = pairs
-                .groupBy { name, _orig -> name.replaceAll(/[^A-Za-z0-9._-]/, '_') }
-                .findAll { _safe, group -> group.size() > 1 }
+                .groupBy { name, _orig -> name }
+                .findAll { _name, group -> group.size() > 1 }
             if (clashes) {
-                def lines = clashes.collect { safe, group ->
-                    "    ${safe}: " + group.collect { name, orig ->
-                        name == orig ? "'${orig}'" : "'${orig}' (renamed to '${name}')"
+                def lines = clashes.collect { name, group ->
+                    "    ${name}: " + group.collect { _name, orig ->
+                        renamedTo(orig) == orig ? "'${orig}'" : "'${orig}' (renamed to '${renamedTo(orig)}')"
                     }.join(', ')
                 }
                 error """ERROR: Sample name collision, several inputs end up with the same sample name:
@@ -423,8 +508,12 @@ ${lines.join('\n')}
   Check --SRR_sample_map for duplicated target names, and inputs (reads, SRA runs, scaffolds)
   given more than once or sharing a name."""
             }
-            pairs
+            "input_id\trenamed_to\tsample_id\n" + pairs
+                .sort { a, b -> a[0] <=> b[0] }
+                .collect { name, orig -> "${orig}\t${renamedTo(orig)}\t${name}\n" }
+                .join('')
         }
+        .collectFile(name: 'sample_names.tsv', storeDir: params.outdir)
 
     // ---------------------
     // RepeatMasker TE annotation (optional — triggered by --repeat_library)
@@ -594,6 +683,55 @@ ${lines.join('\n')}
 
         MergeBlastSummaries(all_summaries)
 
+        // ------------------------------------------------------------------
+        // Paralog check (--query_paralog)
+        // The paralogs of each query are BLASTed against every assembly; at the
+        // hit locus of each sample, the query and paralog scores are compared.
+        // ------------------------------------------------------------------
+        if (params.query_paralog) {
+            // One FASTA per query with all its paralogs ('<query>_paralogN'),
+            // keyed by the safe form of the query's first header word
+            paralog_fastas = channel.fromPath(params.query_paralog)
+                .splitFasta(record: [id: true, text: true])
+                .map { rec -> [rec.id.replaceAll(/_paralog[0-9]+$/, ''), rec.text] }
+                .collectFile { key, text -> ["${safeName(key)}_paralogs.fasta", text] }
+                .map { f -> [f.name.replaceAll(/_paralogs\.fasta$/, ''), f] }
+
+            // [query_id, query_fasta, seq_type, paralog_fasta]
+            paralog_queries = queries_with_type
+                .map { query_id, query_fasta, seq_type ->
+                    [safeName(query_id.trim().tokenize(' \t')[0]), query_id, query_fasta, seq_type]
+                }
+                .join(paralog_fastas)
+                .map { _key, query_id, query_fasta, seq_type, paralog_fasta ->
+                    [query_id, query_fasta, seq_type, paralog_fasta]
+                }
+
+            BLASTparalogs(
+                all_scaffolds_ch
+                    .combine(paralog_queries)
+                    .map { sample_id, scaffolds_fasta, query_id, _query_fasta, seq_type, paralog_fasta ->
+                        [sample_id, scaffolds_fasta, query_id, paralog_fasta, seq_type]
+                    }
+            )
+
+            query_blast_by_query = BLASTsearch.out.results
+                .map { query_id, _sample_id, results -> [query_id, results] }
+                .groupTuple()
+            paralog_blast_by_query = BLASTparalogs.out.results
+                .map { query_id, _sample_id, results -> [query_id, results] }
+                .groupTuple()
+
+            ParalogCheck(
+                paralog_queries
+                    .map { query_id, query_fasta, _seq_type, paralog_fasta -> [query_id, query_fasta, paralog_fasta] }
+                    .join(CombineBlastHits.out.summary)
+                    .join(query_blast_by_query)
+                    .join(paralog_blast_by_query)
+            )
+            paralog_done = ParalogCheck.out.table.map { _query_id, tsv -> tsv }.collect()
+        }
+
         // Align BLAST hit sequences across samples
         AlignMAFFT(CombineBlastHits.out.combined_sequences.map { query_id, fasta -> [query_id, "blast", fasta] })
 
@@ -757,6 +895,7 @@ ${lines.join('\n')}
                 .mix(IQtreeProteinPhylogeny.out.results.collect())
                 .mix(PlotIsoformTree.out.pdf.collect())
                 .mix(hit_tes_done)
+                .mix(paralog_done)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)
@@ -801,6 +940,7 @@ ${lines.join('\n')}
                 .mix(MergeBlastSummaries.out)
                 .mix(IQtreeBlastPhylogeny.out.results.collect())
                 .mix(hit_tes_done)
+                .mix(paralog_done)
                 .mix(fastp_summary_done)
                 .mix(bwa_done)
                 .mix(repeat_done)

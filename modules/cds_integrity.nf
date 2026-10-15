@@ -31,14 +31,15 @@ process AssessCdsIntegrity {
     #!/bin/bash
     set -euo pipefail
 
+    # Staged input paths are backslash-escaped by Nextflow and must stay unquoted
     classify_cds_integrity.py \
         --sample "${sample_id}" \
         --query-id "${query_id}" \
-        --query "${query_fasta}" \
+        --query ${query_fasta} \
         --seq-type "${seq_type}" \
-        --exonerate "${gff3_file}" \
-        --target "${hit_fasta}" \
-        --assembly "${assembly}" \
+        --exonerate ${gff3_file} \
+        --target ${hit_fasta} \
+        --assembly ${assembly} \
         --out-prefix "${prefix}"
     """
 }

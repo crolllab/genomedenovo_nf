@@ -26,8 +26,8 @@ Numbering is shared by all outputs and follows isoform frequency:
   1. isoforms carried by at least one intact sample sequence, by the number of
      sample sequences carrying them (descending; the reference is not counted);
   2. the query reference, when its sequence is not found in any intact sample;
-  3. isoforms found only in truncated (or stop-lost, 'extended') sequences,
-     again by number of sample sequences.
+  3. isoforms found only in truncated, stop-lost ('extended') or partial
+     (contig edge / assembly gap) sequences, again by number of sample sequences.
 Ties keep the order of first appearance in the alignment. The intact-only
 table (reference row included) therefore has consecutive numbers, and
 truncated isoforms continue the series in the combined table.
@@ -45,7 +45,7 @@ import re
 
 
 # Statuses excluded from the intact-only table
-NOT_INTACT = {'truncated', 'extended'}
+NOT_INTACT = {'truncated', 'extended', 'partial'}
 
 
 def read_fasta(path):
@@ -105,7 +105,7 @@ def assign_isoforms(records, status_of):
         elif 'reference' in statuses:
             category = 1                 # reference not found in any intact sample
         else:
-            category = 2                 # truncated / extended sequences only
+            category = 2                 # truncated / extended / partial sequences only
         return (category, -len(samples), first_seen)
 
     ordered = sorted(enumerate(groups.values()), key=rank)

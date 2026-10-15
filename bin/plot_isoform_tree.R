@@ -11,7 +11,8 @@
 #   seq_type        cds_isoform or protein_isoform (used in the title)
 #
 # The tree is midpoint-rooted. Tips read 'Isoform N (n = samples)'; isoforms
-# carried only by truncated or stop-lost (extended) sequences are coloured,
+# carried only by truncated, stop-lost (extended) or partial (contig edge)
+# sequences are coloured,
 # the query reference is marked with a triangle and bold label. Bootstrap
 # support is shown at internal nodes when available.
 
@@ -27,7 +28,8 @@ out_pdf <- args[3]
 seq_type <- args[4]
 title <- if (length(args) >= 5) args[5] else ""
 
-col_status <- c(full_length = "black", truncated = "#D55E00", extended = "#0072B2")
+col_status <- c(full_length = "black", truncated = "#D55E00", extended = "#0072B2",
+                partial = "#999999")
 
 # ---------------------------------------------------------------------------
 # Isoform annotation from the FASTA headers
@@ -41,12 +43,14 @@ read_isoform_info <- function(path) {
   n <- suppressWarnings(as.integer(field("n_samples")))
   statuses <- strsplit(ifelse(is.na(field("status")), "NA", field("status")), ",")
   is_ref <- vapply(statuses, function(s) "reference" %in% s, logical(1))
-  # Colour class: truncated / extended when no intact sequence carries the isoform
+  # Colour class: truncated / extended / partial when no intact sequence
+  # carries the isoform (truncated wins, partial covers partial + extended)
   class <- vapply(statuses, function(s) {
     s <- setdiff(s, "reference")
     if (length(s) == 0) return("full_length")
-    if (all(s %in% c("truncated", "extended"))) {
-      return(if (all(s == "extended")) "extended" else "truncated")
+    if (all(s %in% c("truncated", "extended", "partial"))) {
+      if ("truncated" %in% s) return("truncated")
+      return(if (all(s == "extended")) "extended" else "partial")
     }
     "full_length"
   }, character(1))
@@ -138,8 +142,9 @@ type_label <- if (grepl("^protein", seq_type)) "Protein isoforms" else "CDS isof
 main <- if (nzchar(title)) paste0(type_label, ": ", title) else type_label
 title(main = main, cex.main = 0.9, font.main = 1)
 
-legend(x = 0, y = -0.9, yjust = 0.5, horiz = TRUE, bty = "n", cex = 0.7,
-       legend = c("full-length", "truncated only", "stop codon lost only", "query reference"),
-       text.col = c(col_status[c("full_length", "truncated", "extended")], "black"),
-       pch = c(NA, NA, NA, 17), col = "black")
+legend(x = 0, y = -0.9, yjust = 0.5, ncol = 3, bty = "n", cex = 0.7,
+       legend = c("full-length", "truncated only", "stop codon lost only",
+                  "partial (contig edge) only", "query reference"),
+       text.col = c(col_status[c("full_length", "truncated", "extended", "partial")], "black"),
+       pch = c(NA, NA, NA, NA, 17), col = "black")
 invisible(dev.off())
