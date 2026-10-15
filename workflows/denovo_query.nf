@@ -39,6 +39,43 @@ include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
 // ---------------------
+// Helper functions
+// ---------------------
+// Filesystem-safe sample name: characters outside [A-Za-z0-9._-] become '_'
+def safeName(name) {
+    return name.toString().replaceAll(/[^A-Za-z0-9._-]/, '_')
+}
+
+// --SRR_sample_map name of an input ID. Local read samples are already
+// safe-named when they are renamed, so the map is also consulted with the
+// safe form of the original ID.
+def renamedTo(rename_map, id) {
+    return rename_map[id] ?: rename_map.find { k, _v -> safeName(k) == id }?.value ?: id
+}
+
+// Final sample name: --SRR_sample_map renaming, then the safe form
+def finalName(rename_map, id) {
+    return safeName(renamedTo(rename_map, id))
+}
+
+// [first word of header, 'nucleotide' or 'protein'] for every FASTA record
+def fastaRecords(path) {
+    def recs = []
+    file(path).eachLine { line ->
+        if (line.startsWith('>')) {
+            recs << [line.substring(1).trim().tokenize(' \t')[0], new StringBuilder()]
+        } else if (recs) {
+            recs[-1][1].append(line.trim())
+        }
+    }
+    return recs.collect { name, buf ->
+        def s = buf.toString().toUpperCase()
+        def nuc = s.findAll { c -> 'ATGCUN'.contains(c as String) }.size()
+        [name, (s && nuc * 100 / s.size() >= 95) ? 'nucleotide' : 'protein']
+    }
+}
+
+// ---------------------
 // Main workflow
 // ---------------------
 workflow denovo_query {
@@ -122,30 +159,6 @@ workflow denovo_query {
         if (!file(params.query_paralog).exists()) {
             exit 1, "ERROR: Paralog query file does not exist: ${params.query_paralog}"
         }
-        // [first word of header, nucleotide or protein] per record
-        def fastaRecords = { path ->
-            def recs = []
-            def name = null
-            def buf = new StringBuilder()
-            def flush = {
-                if (name != null) {
-                    def s = buf.toString().toUpperCase()
-                    def nuc = s.findAll { c -> 'ATGCUN'.contains(c as String) }.size()
-                    recs << [name, (s && nuc * 100 / s.size() >= 95) ? 'nucleotide' : 'protein']
-                }
-            }
-            file(path).eachLine { line ->
-                if (line.startsWith('>')) {
-                    flush()
-                    name = line.substring(1).trim().tokenize(' \t')[0]
-                    buf = new StringBuilder()
-                } else {
-                    buf.append(line.trim())
-                }
-            }
-            flush()
-            recs
-        }
         def query_types = fastaRecords(params.blast_query).collectEntries { name, type -> [name, type] }
         def paralog_recs = fastaRecords(params.query_paralog)
         def problems = []
@@ -219,8 +232,8 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
     // characters outside [A-Za-z0-9._-] become '_' (e.g. 'Iran_2024_Kch(2)12-1g'
     // -> 'Iran_2024_Kch_2_12-1g'). Sample names end up in file names, FASTA
     // headers and tree tips, and characters such as '(' or ' ' broke steps
-    // silently. <outdir>/sample_names.tsv maps every input to its final name.
-    def safeName = { name -> name.toString().replaceAll(/[^A-Za-z0-9._-]/, '_') }
+    // silently. <outdir>/sample_names.tsv maps every input to its final name
+    // (see safeName / finalName above).
 
     // Optional renaming (--SRR_sample_map), looked up by the original input ID
     def rename_map = [:]
@@ -230,10 +243,6 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
             if (parts.size() == 2) rename_map[parts[0].trim()] = parts[1].trim()
         }
     }
-    // Local read samples are already safe-named when they are renamed, so the
-    // map is also consulted with the safe form of the original ID
-    def renamedTo = { id -> rename_map[id] ?: rename_map.find { k, _v -> safeName(k) == id }?.value ?: id }
-    def finalName = { id -> safeName(renamedTo(id)) }
 
     // Placeholder for fastp summary signal (only populated when reads are trimmed)
     fastp_summary_done = channel.empty()
@@ -481,7 +490,7 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
     // Final sample names: --SRR_sample_map renaming, then the safe form
     // ---------------------
     all_scaffolds_ch = all_scaffolds_ch
-        .map { sample_id, scaffolds -> [finalName(sample_id), scaffolds] }
+        .map { sample_id, scaffolds -> [finalName(rename_map, sample_id), scaffolds] }
 
     // ---------------------
     // Sample name collision check and name table
@@ -490,7 +499,7 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
     // other and IQ-TREE rejects duplicated names. Runs on the input IDs, so the
     // run stops before assembly (SRA runs are known once SRAresolve has finished).
     input_ids_ch
-        .map { input_id -> [finalName(input_id), input_id] }
+        .map { input_id -> [finalName(rename_map, input_id), input_id] }
         .collect(flat: false)
         .map { pairs ->
             def clashes = pairs
@@ -499,7 +508,7 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
             if (clashes) {
                 def lines = clashes.collect { name, group ->
                     "    ${name}: " + group.collect { _name, orig ->
-                        renamedTo(orig) == orig ? "'${orig}'" : "'${orig}' (renamed to '${renamedTo(orig)}')"
+                        renamedTo(rename_map, orig) == orig ? "'${orig}'" : "'${orig}' (renamed to '${renamedTo(rename_map, orig)}')"
                     }.join(', ')
                 }
                 error """ERROR: Sample name collision, several inputs end up with the same sample name:
@@ -510,7 +519,7 @@ ${lines.join('\n')}
             }
             "input_id\trenamed_to\tsample_id\n" + pairs
                 .sort { a, b -> a[0] <=> b[0] }
-                .collect { name, orig -> "${orig}\t${renamedTo(orig)}\t${name}\n" }
+                .collect { name, orig -> "${orig}\t${renamedTo(rename_map, orig)}\t${name}\n" }
                 .join('')
         }
         .collectFile(name: 'sample_names.tsv', storeDir: params.outdir)
