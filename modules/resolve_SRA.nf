@@ -1,7 +1,5 @@
 process SRAresolve {
     tag "Querying SRA/ENA"
-    cpus 1
-    memory '4GB'
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
     errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
     maxRetries 6

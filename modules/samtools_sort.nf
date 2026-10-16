@@ -19,11 +19,16 @@ process samtoolsSort {
     // symlink and removing its target destroys the bwaMap task's cached output,
     // which breaks -resume and any later retry of this task. Reclaim space with
     // `nextflow clean` once the run has completed successfully.
+    //
+    // samtools -@ counts threads in addition to the main one; view streams
+    // uncompressed BAM to sort, so it needs no compression threads.
+    def extra_threads = Math.max(0, task.cpus - 1)
+    def sort_mem_mb   = Math.max(256, (task.memory.toMega() * 0.6 / task.cpus) as long)
     """
     set -euo pipefail
 
-    samtools flagstat -@ ${task.cpus} -O json $sample_sam > "${sample_id}_flagstat.json"
-    samtools view -@ ${task.cpus} -Sb -q 10 $sample_sam | samtools sort -@ ${task.cpus} -o "${sample_id}_sorted.bam" -
-    samtools index -@ ${task.cpus} "${sample_id}_sorted.bam"
+    samtools flagstat -@ ${extra_threads} -O json $sample_sam > "${sample_id}_flagstat.json"
+    samtools view -u -q 10 $sample_sam | samtools sort -@ ${extra_threads} -m ${sort_mem_mb}M -o "${sample_id}_sorted.bam" -
+    samtools index -@ ${extra_threads} "${sample_id}_sorted.bam"
     """
 }

@@ -18,8 +18,6 @@ process BLASTparalogs {
     tag "BLAST paralogs ${sample_id}"
     errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
     maxRetries 6
-    memory '4GB'
-    cpus 4
     publishDir { "${params.outdir}/6_blast_hits/${query_id}/paralog_check" }, mode: 'copy'
 
     input:

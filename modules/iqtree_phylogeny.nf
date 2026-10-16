@@ -94,7 +94,7 @@ process IQtreeAlignmentPhylogeny {
         -s "\${aln}" \\
         -m MFP \\
         \$BOOT_ARG \\
-        -T ${task.cpus} \\
+        -T AUTO --threads-max ${task.cpus} \\
         --prefix "\${prefix}" \\
         --redo
     """

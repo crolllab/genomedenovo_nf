@@ -1,8 +1,6 @@
 // Process to split multi-sequence query file into individual sequences
 process SplitQuerySequences {
     tag "Splitting query sequences"
-    cpus 4
-    memory '2GB' 
 
     publishDir "${params.outdir}/6_blast_hits/query_sequences", mode: 'copy'
     
@@ -131,8 +129,6 @@ process BLASTsearch {
     tag "BLAST search"
     errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
     maxRetries 6
-    memory '4GB'
-    cpus 4
     publishDir { "${params.outdir}/6_blast_hits/${query_id}/blast_results" }, mode: 'copy'
     
     input:

@@ -146,7 +146,7 @@ EOF
                 # Capture the status rather than testing it inline: a timeout kill
                 # exits 124 and writes nothing to stderr, which is indistinguishable
                 # from a silent failure unless the code itself is reported.
-                timeout \$fasterq_timeout fasterq-dump "\$sra_file" --split-files -O . --temp fasterq_tmp 2>fasterq_${srr}.err
+                timeout \$fasterq_timeout fasterq-dump "\$sra_file" -e ${task.cpus} --split-files -O . --temp fasterq_tmp 2>fasterq_${srr}.err
                 fq_status=\$?
                 if [ \$fq_status -eq 0 ]; then
                     # Clean up SRA file and temp directory immediately to save space
@@ -323,7 +323,7 @@ EOF
             if [ -n "\$sra_file" ]; then
                 export TMPDIR="\$PWD/fasterq_tmp"
 
-                timeout \$fasterq_timeout fasterq-dump "\$sra_file" --split-files -O . --temp fasterq_tmp 2>fasterq_${srr}.err
+                timeout \$fasterq_timeout fasterq-dump "\$sra_file" -e ${task.cpus} --split-files -O . --temp fasterq_tmp 2>fasterq_${srr}.err
                 fq_status=\$?
                 if [ \$fq_status -eq 0 ]; then
                     rm -rf ncbi_download fasterq_tmp

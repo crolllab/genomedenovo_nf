@@ -172,6 +172,7 @@ The per-query trees (BLAST hits, Exonerate CDS/protein, isoforms) do not need `-
 |---|---|---|
 | `--outdir` | `./nf_output` | Output folder. |
 | `-profile` | none | `local`: local machine, 4 CPUs per task. `local_highCPU`: local machine, 16 CPUs per task. `slurm`: submit each task as a SLURM job (16 CPUs). Without a profile, tasks run locally with their own defaults (mostly 1 CPU). |
+| `--max_cpus` / `--max_memory` / `--max_time` | `16` / `128.GB` / `7.d` | Upper bounds for any single task. Requests above them, including memory that grows with each retry, are capped to these values. Set them to what one node (or your machine) offers. |
 | `--slurm_queue` | – | SLURM partition; required with `-profile slurm`. The partition should allow long jobs (up to 7 days for large assemblies). |
 | `-work-dir` | `./work` | Folder for intermediate files, which can grow very large; use scratch space for big runs. |
 | `-resume` | off | Reuse completed tasks from a previous run (needs the intact work folder). |

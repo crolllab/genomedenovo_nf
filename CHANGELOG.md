@@ -2,7 +2,17 @@
 
 ## Unreleased
 
+### Changed
+
+- **Task resources matched to what the tools use** (measured with SLURM accounting on the Oct 2026 runs). BLASTsearch, BLASTparalogs and BlastLocusOnReference use 1 CPU (they kept ~1 of 4 cores busy); fastp 8 (was the profile default, 16 on SLURM); AlignBuscoGene 4 (was 16, for seconds-long alignments); the per-query IQ-TREE trees 4, with `-T AUTO` picking the thread count up to that; BUSCO 8 CPUs and 8 GB (was 2 CPUs and 4 GB, CPU-bound and at its memory limit); RAxML-NG 8 GB (was 32 GB, peak 3 GB); CombineBlastHits 2 GB (was 8 GB). Resources are now set only in `nextflow.config`, no longer partly in the modules where the config silently overrode them.
+- **`--max_cpus`, `--max_memory`, `--max_time`** (defaults 16, 128 GB, 7 days) cap every task's request. Memory doubling on retries could previously exceed any node (SPAdes up to 96 GB, RAxML-NG up to 192 GB) and leave the job pending.
+- **`pipeline_trace.txt` records `%cpu` and `%mem`**, so CPU use can be checked without SLURM accounting.
+
 ### Fixed
+
+- **RepeatMasker ran 4× more threads than allocated.** `-pa` sets parallel batches, and RepeatMasker runs each RMBlast batch with 4 threads, so `-pa 2` started 8 threads on 2 cores. It now gets 4 CPUs and `-pa` is the CPU count divided by 4.
+- **fasterq-dump ran 6 threads on 1 CPU** (its default). It now uses the task's CPUs (`-e`).
+- **samtoolsSort ran up to 4 threads on 1 CPU** (`-@` counts additional threads, and `view` and `sort` each got their own). It now gets 4 CPUs, uses `-@ cpus-1`, streams uncompressed BAM from `view` to `sort`, and sets the sort memory per thread from the task memory.
 
 - **Paralog hits contaminated the downstream outputs (`--query_paralog`).** The paralog check ran after the hit extraction and only reported, so in a sample without the query gene the query's best BLAST hit on a paralog was still extracted, modelled by Exonerate (often as "full_length"), classified, numbered as an isoform and placed in the alignments and trees. The check now runs per sample before the extraction: every BLAST hit is assigned to the query or to the paralog that scores best there, and only the query's own copy is extracted. Samples whose query hits are all paralog loci are `paralog_only` in the BLAST and Exonerate summaries, the isoform table and the TE summary, and are absent from all sequences, alignments and trees. Exonerate gene models must now overlap the extracted BLAST hit span, so a paralog in the padding flank is not modelled.
 - **Paralog table reported paralogs incompletely.** A paralog's "best locus" merged all its hits on a scaffold, so neighbouring paralogs were reported as one locus and the second paralog's own copy was hidden (in IPO323, paralog1's locus spanned both chromosome-10 genes). Every reference's copies are now separated by hit ownership; `{query_id}_paralog_check.tsv` lists for the query and every paralog the number of copies and the best one, and the new `{query_id}_paralog_loci.tsv` lists every copy of every reference per sample. New column `skipped_paralog_loci` lists query hit loci left out because a paralog scores higher there.

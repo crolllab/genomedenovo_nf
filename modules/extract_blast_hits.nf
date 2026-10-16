@@ -3,8 +3,6 @@ process ExtractBlastHits {
     tag "Extract BLAST hits"
     errorStrategy { task.attempt <= 6 ? 'retry' : 'ignore' }
     maxRetries 6
-    memory '2GB'
-    cpus 1
     publishDir { "${params.outdir}/6_blast_hits/${query_id}/hit_sequences" }, mode: 'copy'
     
     input:

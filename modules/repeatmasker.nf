@@ -18,13 +18,15 @@ process RepeatMasker {
     script:
     // Use a filesystem-safe ID for file names; original name is preserved as val(sample_id)
     def safe_id = sample_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
+    // -pa sets parallel batches, and each RMBlast batch runs 4 threads
+    def batches = Math.max(1, task.cpus.intdiv(4))
     """
     set -euo pipefail
 
     # Copy scaffold to a predictable filename so RepeatMasker output names are known
     cp ${scaffolds} input_scaffolds.fasta
 
-    RepeatMasker -lib "$repeat_library" -pa $task.cpus -gff input_scaffolds.fasta
+    RepeatMasker -lib "$repeat_library" -pa ${batches} -gff input_scaffolds.fasta
 
     mv input_scaffolds.fasta.out.gff "${safe_id}_repeatmasker.gff"
     mv input_scaffolds.fasta.masked  "${safe_id}_repeatmasker.masked"
