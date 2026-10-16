@@ -132,7 +132,7 @@ Final names must be unique (`isolate 1` and `isolate_1` clash). The pipeline che
 | `--padding` | `500` | bp added on both sides of the BLAST hit when extracting it. The padded region is also the window searched by Exonerate and the locus used by `--locus_coverage`. |
 | `--min_align_prop` | `0.8` | Per-query trees leave out sequences covering less than this proportion of the core alignment (the columns of the query reference, or of at least half of the sequences). The query reference is always kept. `0` keeps all sequences. See [methods](#alignment-filter). |
 | `--query_paralog` | – | FASTA with known paralogs of the queries, switching on the [paralog check](#paralog-check). Name each paralog after the first word of its query header plus `_paralog1`, `_paralog2`, … (`>GeneA_paralog1` for the query `>GeneA …`); paralogs must be of the same type (nucleotide/protein) as their query. Queries without paralogs are not checked. |
-| `--paralog_ambiguous_ratio` | `0.95` | Paralog check: a hit is called `ambiguous` when the second-best reference reaches this fraction of the best bit score. |
+| `--paralog_ambiguous_ratio` | `0.95` | Paralog check: a query hit is called `ambiguous` when the second-best reference reaches this fraction of the query's bit score at the locus. Ambiguous hits are kept. |
 
 ### Assembly QC
 
@@ -214,6 +214,8 @@ Folders are numbered in pipeline order; a folder exists only if its step ran. `{
 - `{query_id}/hit_sequences/{sample_id}_top_hits.fasta` / `_top_hits_info.tsv`: Extracted (padded) hit region per sample, named by its scaffold location
 - `{query_id}/paralog_check/{sample_id}_paralog_blast_results.tsv`: Raw BLAST output of the query's paralogs (`--query_paralog`)
 
+With `--query_paralog`, samples whose query hits all belong to a paralog have `subject_id` `paralog_only` in the hit summaries (BLAST and Exonerate), and no hit sequence. `blast_results/` keeps the raw, unfiltered BLAST output.
+
 ### 7 — Exonerate (`7_exonerate_hits/`, with `--search_tool exonerate`)
 - `exonerate_summary_merged.tsv`: Exonerate results for all queries and samples
 - `{query_id}/{query_id}_all_exonerate_cds.fasta` / `_protein.fasta`: CDS and protein of every sample (and the query), named by sample ID (`{sample}_{n}` when a sample has several gene models)
@@ -256,18 +258,23 @@ The hit is the Exonerate gene model with `--search_tool exonerate`, otherwise th
 
 <a id="paralog-check-table"></a>
 #### Paralog check (`--query_paralog`)
-- **`{query_id}_paralog_check.tsv`**: One row per sample, for the hit reported for the query (the BLAST hit locus, which is also the region searched by Exonerate). Columns:
-  - `sample_id`, `query_id`, `hit_scaffold`, `hit_start`, `hit_end`
-  - `closest_reference` (query or paralog with the highest bit score at the hit locus), `call` (`query`, `paralog`, `ambiguous` = second best ≥ `--paralog_ambiguous_ratio` × best, `no_hit`), `best_bitscore`, `second_reference`, `second_bitscore`, `score_ratio`
-  - `query_` / `paralogN_` `bitscore`, `identity_pct`, `coverage_pct`: score of each reference at the hit locus
-  - `paralogN_best_locus`, `paralogN_best_locus_is_hit`: where the paralog's own best hit lies in the sample, and whether that is the query's hit locus (`no` = the sample has a separate copy for the paralog)
+Paralog hits never enter the other outputs: a sample's query hit is extracted only where it belongs to the query (see [methods](#paralog-check)).
+
+- **`{query_id}_paralog_check.tsv`**: One row per sample. Columns:
+  - `sample_id`, `query_id`, `call`: `query` (the query's own copy was found and extracted), `ambiguous` (as `query`, but the second-best reference scores ≥ `--paralog_ambiguous_ratio` × the query there), `paralog` (the query hits only paralog loci; nothing is extracted, and the sample is `paralog_only` in all other tables), `no_hit`
+  - `hit_scaffold`, `hit_start`, `hit_end`: the extracted query copy; for `paralog`, the paralog locus that the query hit best
+  - `closest_reference`, `best_bitscore`, `second_reference`, `second_bitscore`, `score_ratio`: ranking of the query and all paralogs at that locus
+  - `query_` / `paralogN_` `bitscore_at_hit`, `identity_pct_at_hit`, `coverage_pct_at_hit`: score of every reference at that locus
+  - `skipped_paralog_loci`: query hit loci that were not extracted because a paralog scores higher there (`scaffold:start-end(paralogN)`), e.g. when the best query hit lies on a paralog but a weaker query copy exists elsewhere
+  - `query_` / `paralogN_` `n_copies`, `best_copy`, `best_copy_bitscore`, `best_copy_identity_pct`, `best_copy_coverage_pct`: every reference's own copies in the sample (number, and the best one with its location and score)
+- **`{query_id}_paralog_loci.tsv`**: Every copy of the query and of each paralog in every sample: `sample_id`, `query_id`, `reference`, `reference_label` (`query`, `paralog1`, …), `scaffold`, `start`, `end`, `n_hsps`, `bitscore`, `identity_pct`, `coverage_pct`, `extracted` (`yes` for the query copy used downstream)
 
 #### Isoforms (`--search_tool exonerate`)
 Isoform numbers are shared by all files of a query (see [isoform numbering](#isoforms)).
 
 - `{query_id}_isoforms.tsv`: The query reference and every intact sequence. Columns: `sample_id`, `cds_isoform`, `protein_isoform`, `cds_sequence`, `protein_sequence`
 - **`{query_id}_isoforms_incl_truncated.tsv`**: Every sequence, including truncated ones and samples without a hit (`no_hit`). Columns:
-  - `sample_id`, `cds_isoform`, `protein_isoform`, `status` (`reference`, `full_length`, `truncated`, `extended` = stop codon lost only, `partial` = incomplete only because the contig ends or an assembly gap, `no_hit`)
+  - `sample_id`, `cds_isoform`, `protein_isoform`, `status` (`reference`, `full_length`, `truncated`, `extended` = stop codon lost only, `partial` = incomplete only because the contig ends or an assembly gap, `no_hit`, `paralog_only` = the query hit only paralog loci, `--query_paralog`)
   - `truncation_cause`: `contig_edge` (the gene runs off the contig), `assembly_gap` (N run next to the missing part), `nucleotide_deletion` (part of the query is missing although the contig continues), `ORF_mutation` (the sequence is there but the reading frame is disrupted), several joined by `+`, or `none`. The first two are limits of the assembly, the last two evidence of a truncated gene.
   - `contig_edge`: contig end(s) the gene model or its reading frame runs into: `5prime`, `3prime`, `5prime,3prime` or `none`
   - `orf_end`: how the encoded reading frame ends: `expected_stop`, `premature_stop` (ORF cut short), `late_stop` (read-through to a later stop), `contig_end` (no stop codon before the contig ends; `observed_protein_length` is then a minimum, `>=N`)
@@ -316,7 +323,13 @@ The intact-only table therefore numbers consecutively.
 
 <a id="alignment-filter"></a>**Alignment filter.** Before a tree is built, sequences that align only partially are left out: a sequence must have residues in at least `--min_align_prop` (default 0.8) of the core alignment columns. The core columns are those where the query reference has a residue; alignments without the reference (BLAST hits of protein queries, isoform alignments) use the columns where at least half of the sequences have a residue. Measuring against the core rather than all columns keeps a single long outlier (a TE insertion, or a hit spanning two loci) from pushing every other sequence below the threshold; the hit flanks added by `--padding` do not count either. The query reference is always kept. The decision for every sequence is listed in `.alignment_filter.tsv` next to the tree (`core_basis` says which core was used).
 
-<a id="paralog-check"></a>**Paralog check.** With `--query_paralog`, the paralogs of each query are BLASTed against every assembly with the same program and settings as the query. At the hit locus reported for the query (the merged BLAST span on the best scaffold), the hits of the query and of each paralog are scored: bit scores of non-overlapping hits are summed (greedy by score), with their length-weighted identity and the share of the reference they cover. The reference with the highest score is the closest; the call is `ambiguous` when the second best reaches `--paralog_ambiguous_ratio` of it. A `paralog` call means the sample's hit is more likely a copy of that paralog than of the query, e.g. when the query gene itself is missing. See [the output table](#paralog-check-table).
+<a id="paralog-check"></a>**Paralog check.** With `--query_paralog`, the paralogs of each query are BLASTed against every assembly with the same program and settings as the query. This runs before the hit extraction, per sample:
+1. Every BLAST hit (HSP) of the query and the paralogs is assigned to its reference, unless a hit of another reference overlaps it on the scaffold with a higher bit score; then it belongs to that reference. Ties go to the query.
+2. A reference's own hits on one scaffold form a copy; the copy is split where a hit of another reference lies in between (tandem arrays).
+3. The query copy to extract is chosen as without paralogs (the one with the best single hit), but among the query's own copies only. It must also win at the locus level: bit scores of non-overlapping hits over the copy's span are summed (greedy by score) per reference, and no paralog may score higher than the query. Otherwise the copy is skipped and the next is tried.
+4. Only the hits of the chosen copy go on to the hit extraction. If no query copy remains, the sample is `paralog_only`: nothing is extracted, and it is absent from the hit FASTA, alignments, trees, Exonerate, CDS integrity, isoforms and the TE summary.
+
+As a further guard, Exonerate gene models must overlap the extracted BLAST hit span; a model that lies only in the `--padding` flank (e.g. a neighbouring paralog) is discarded. Ambiguous calls are kept downstream and flagged in the paralog table. See [the output tables](#paralog-check-table).
 
 **Reference mapping and locus coverage.** Trimmed reads are mapped with BWA-mem2, filtered at MAPQ ≥ 10, sorted and indexed. For `--locus_coverage`, the query is BLASTed against the reference to find its locus. Per sample, the mean and median depth over the locus ± `--padding` (MAPQ ≥ 20) are compared with the mean and SD of per-base depth over the whole genome.
 

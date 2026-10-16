@@ -228,7 +228,30 @@ def gff2_to_gff3_lines(gff_path):
 # GFF3 parser
 # ---------------------------------------------------------------------------
 
-def parse_gff3_cds(gff_path):
+def read_hit_spans(fasta_path):
+    """Return {window_id: (start, end)}: the unpadded BLAST hit span of each
+    extracted window, in window coordinates.
+
+    ExtractBlastHits writes headers '>contig:wstart-wend hit=hstart-hend'
+    (contig coordinates, window always in forward orientation). Windows
+    without a 'hit=' description are not listed.
+    """
+    spans = {}
+    with open(fasta_path) as fh:
+        for line in fh:
+            if not line.startswith('>'):
+                continue
+            parts = line[1:].split()
+            m = re.match(r'^(.+):(\d+)-(\d+)$', parts[0]) if parts else None
+            h = next((re.match(r'^hit=(\d+)-(\d+)$', p) for p in parts[1:]
+                      if p.startswith('hit=')), None)
+            if m and h:
+                off = int(m.group(2)) - 1
+                spans[parts[0]] = (int(h.group(1)) - off, int(h.group(2)) - off)
+    return spans
+
+
+def parse_gff3_cds(gff_path, hit_spans=None):
     """Return (cds_by_parent, parent_strand, parent_scaffold).
 
     cds_by_parent : {parent_id: [(start_1based, end_1based, scaffold), ...]}
@@ -237,6 +260,10 @@ def parse_gff3_cds(gff_path):
 
     The input is first normalised to GFF3 via :func:`gff2_to_gff3_lines` so
     that Exonerate GFF2 and standard GFF3 are handled uniformly.
+
+    With *hit_spans* (from :func:`read_hit_spans`), gene models that do not
+    overlap the BLAST hit span of their window are dropped: a model only in
+    the padding is another gene (e.g. a neighbouring paralog), not the hit.
     """
     cds_by_parent   = defaultdict(list)
     parent_strand   = {}
@@ -269,6 +296,12 @@ def parse_gff3_cds(gff_path):
             parent_strand[parent]   = strand
             parent_scaffold[parent] = seqid
 
+    if hit_spans:
+        for gid in list(cds_by_parent):
+            seqid = cds_by_parent[gid][0][2]
+            span = hit_spans.get(seqid)
+            if span and not any(s <= span[1] and e >= span[0] for s, e, _ in cds_by_parent[gid]):
+                del cds_by_parent[gid]
     drop_overlapping_models(cds_by_parent, gene_span)
     return cds_by_parent, parent_strand, parent_scaffold
 
@@ -304,7 +337,7 @@ def main():
     genome_file, gff_file, sample_id, query_id_val = sys.argv[1:]
 
     genome = read_fasta(genome_file)
-    cds_by_parent, parent_strand, parent_scaffold = parse_gff3_cds(gff_file)
+    cds_by_parent, parent_strand, parent_scaffold = parse_gff3_cds(gff_file, read_hit_spans(genome_file))
     query_coords = parse_vulgar_query_coords(gff_file)
 
     if not cds_by_parent:

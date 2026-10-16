@@ -15,6 +15,8 @@ process ExtractBlastHits {
     tuple val(query_id), path("${sample_id}_top_hits_info.tsv"), emit: hit_info
     
     script:
+    // BLAST names the query by the first word of its header
+    def query_word = query_id.trim().tokenize(' \t')[0]
     """
     #!/bin/bash
     set -euo pipefail
@@ -37,7 +39,11 @@ process ExtractBlastHits {
     # hit coordinates from that scaffold into a single genomic span.
     # This ensures multi-exon genes (where each exon is a separate BLAST hit)
     # are fully covered in the extracted region fed to Exonerate.
+    # Comment lines are skipped: with --query_paralog the table holds only the
+    # query-owned hits (ResolveParalogs), or '# paralog_only' when the query
+    # hits nothing but paralog loci.
     awk -F'\t' '
+    /^#/ { next }
     {
         # BLAST format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
         query    = \$1
@@ -79,6 +85,10 @@ process ExtractBlastHits {
     # Check if we have any hits
     if [ ! -s top_hits.tsv ]; then
         touch "${sample_id}_top_hits.fasta"
+        # Hits of the query only at paralog loci: marked, nothing extracted
+        if grep -q '^# paralog_only' ${blast_results}; then
+            echo -e "${sample_id}\t${query_word}\tparalog_only\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA" >> "${sample_id}_top_hits_info.tsv"
+        fi
         exit 0
     fi
     
@@ -162,8 +172,9 @@ process ExtractBlastHits {
             fi
             
             # Write sequence with contig name + padded coordinates as header
-            # (parsed by extract_exonerate_cds.py to recover absolute coords)
-            echo ">\${sseqid}:\${start}-\${end}" >> "${sample_id}_top_hits.fasta"
+            # (parsed by extract_exonerate_cds.py to recover absolute coords),
+            # and the unpadded hit span as description (gene models must overlap it)
+            echo ">\${sseqid}:\${start}-\${end} hit=\${orig_start}-\${orig_end}" >> "${sample_id}_top_hits.fasta"
             fold -w 60 temp_seq.txt >> "${sample_id}_top_hits.fasta"
             echo "" >> "${sample_id}_top_hits.fasta"
             
@@ -197,7 +208,7 @@ process ExtractBlastHits {
                             mv temp_rc.txt temp_subseq.txt
                         fi
                         
-                        echo ">\${sseqid}:\${start}-\${end}" >> "${sample_id}_top_hits.fasta"
+                        echo ">\${sseqid}:\${start}-\${end} hit=\${orig_start}-\${orig_end}" >> "${sample_id}_top_hits.fasta"
                         # Add newlines every 60 characters for proper FASTA format
                         fold -w 60 temp_subseq.txt >> "${sample_id}_top_hits.fasta"
                         echo "" >> "${sample_id}_top_hits.fasta"

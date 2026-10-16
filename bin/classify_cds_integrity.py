@@ -56,7 +56,7 @@ import subprocess
 import sys
 import tempfile
 
-from extract_exonerate_cds import CODON, parse_gff3_cds, rc
+from extract_exonerate_cds import CODON, parse_gff3_cds, rc, read_hit_spans
 
 
 SUMMARY_COLUMNS = [
@@ -149,9 +149,9 @@ def parse_exonerate_blocks(path):
     return blocks
 
 
-def selected_models(gff_path, blocks, sample_id):
+def selected_models(gff_path, blocks, sample_id, target_path):
     """Mirror extract_exonerate_cds.py: same models, same FASTA headers."""
-    cds_by_parent, _, _ = parse_gff3_cds(gff_path)
+    cds_by_parent, _, _ = parse_gff3_cds(gff_path, read_hit_spans(target_path))
     parents = sorted(cds_by_parent)
     models = []
     for idx, pid in enumerate(parents, start=1):
@@ -1017,7 +1017,7 @@ def main():
     rows, events = [], []
 
     blocks = parse_exonerate_blocks(args.exonerate) if os.path.exists(args.exonerate) else []
-    models = selected_models(args.exonerate, blocks, args.sample) if blocks else []
+    models = selected_models(args.exonerate, blocks, args.sample, args.target) if blocks else []
 
     if models:
         window_seqs = read_fasta_full(args.target)

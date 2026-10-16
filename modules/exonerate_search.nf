@@ -102,7 +102,9 @@ process CombineExonerateHits {
     publishDir { "${params.outdir}/7_exonerate_hits/${query_id}" }, mode: 'copy'
 
     input:
-    tuple val(query_id), path(query_fasta), path(cds_fastas), path(protein_fastas), path(summary_tsvs)
+    // The BLAST hit summary marks samples whose query hits are all paralog loci
+    tuple val(query_id), path(query_fasta), path(cds_fastas), path(protein_fastas), path(summary_tsvs),
+          path(blast_summary, stageAs: 'blast/*')
 
     output:
     tuple val(query_id), path("*_all_exonerate_cds.fasta"),     emit: combined_cds
@@ -234,7 +236,11 @@ PYEOF
             if [ "\${line_count}" -gt 1 ]; then
                 tail -n +2 "\${tsv}" >> "\${clean_query_id}_all_exonerate_summary.tsv"
             else
-                echo -e "\${sample_id}\t${query_id}\tno_hits_found\t.\tNA\tNA\tNA\tNA\t0\t0\t0\t." \
+                no_hit=no_hits_found
+                if awk -F'\t' -v s="\${sample_id}" '\$1 == s && \$3 == "paralog_only" {f = 1} END {exit !f}' ${blast_summary}; then
+                    no_hit=paralog_only
+                fi
+                echo -e "\${sample_id}\t${query_id}\t\${no_hit}\t.\tNA\tNA\tNA\tNA\t0\t0\t0\t." \
                     >> "\${clean_query_id}_all_exonerate_summary.tsv"
             fi
         done

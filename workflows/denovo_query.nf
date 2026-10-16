@@ -34,7 +34,7 @@ include { IQtreeAlignmentPhylogeny as IQtreeCdsIsoformPhylogeny } from '../modul
 include { IQtreeAlignmentPhylogeny as IQtreeProteinIsoformPhylogeny } from '../modules/iqtree_phylogeny'
 include { PlotIsoformTree } from '../modules/plot_isoform_tree'
 include { SummarizeHitTEs } from '../modules/summarize_hit_tes'
-include { BLASTparalogs; ParalogCheck } from '../modules/paralog_check'
+include { BLASTparalogs; ResolveParalogs; ParalogCheck } from '../modules/paralog_check'
 include { BlastLocusOnReference; ComputeLocusCoverage; MergeLocusCoverage } from '../modules/locus_coverage'
 include { PipelineStatistics } from '../modules/pipeline_statistics'
 
@@ -151,7 +151,9 @@ workflow denovo_query {
     }
 
     // --query_paralog: paralogs of the queries, each named '<query>_paralogN'
-    // after the first word of a --blast_query header, and of the same type
+    // after the first word of a --blast_query header, and of the same type.
+    // paralog_query_keys: first header words of the queries with paralogs
+    def paralog_query_keys = [] as Set
     if (params.query_paralog) {
         if (!params.blast_query) {
             exit 1, "ERROR: --query_paralog requires --blast_query."
@@ -182,6 +184,7 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
   (e.g. '>GeneA_paralog1' for the query '>GeneA ...'); paralogs must be of the same type as the query."""
         }
         def with_paralogs = paralog_recs.collect { name, _type -> name.replaceAll(/_paralog[0-9]+$/, '') } as Set
+        paralog_query_keys = with_paralogs
         def without = query_types.keySet().findAll { q -> !with_paralogs.contains(q) }
         if (without) {
             log.warn "No paralogs given for query/queries ${without.join(', ')}: no paralog check for them."
@@ -652,52 +655,21 @@ ${lines.join('\n')}
         // ------------------------------------------------------------------
         BLASTsearch(search_input)
 
-        // Join BLAST results back with scaffolds for region extraction
-        // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
-        blast_remapped = BLASTsearch.out.results
-            .map { query_id, sample_id, blast_results ->
-                [sample_id, [query_id, blast_results]]
-            }
-
-        scaffolds_for_join = all_scaffolds_ch
-            .map { sample_id, scaffolds -> [sample_id, scaffolds] }
-
-        blast_with_scaffolds = blast_remapped
-            .combine(scaffolds_for_join, by: 0)
-            .map { sample_id, blast_info, scaffolds_fasta ->
-                def query_id      = blast_info[0]
-                def blast_results = blast_info[1]
-                [query_id, sample_id, blast_results, scaffolds_fasta]
-            }
-
-        ExtractBlastHits(blast_with_scaffolds)
-
-        // Group per-sample outputs by query_id
-        sequences_by_query = ExtractBlastHits.out.sequences
-            .map { query_id, sample_id, fasta -> [query_id, fasta] }
-            .groupTuple()
-
-        hit_info_by_query = ExtractBlastHits.out.hit_info
-            .groupTuple()
-
-        combined_by_query = individual_queries
-            .join(sequences_by_query)
-            .join(hit_info_by_query)
-
-        CombineBlastHits(combined_by_query)
-
-        // Merge per-query summary TSVs into a single wide-format table
-        all_summaries = CombineBlastHits.out.summary
-            .map { query_id, summary_file -> summary_file }
-            .collect()
-
-        MergeBlastSummaries(all_summaries)
-
         // ------------------------------------------------------------------
         // Paralog check (--query_paralog)
-        // The paralogs of each query are BLASTed against every assembly; at the
-        // hit locus of each sample, the query and paralog scores are compared.
+        // For queries with paralogs, the paralogs are BLASTed against every
+        // assembly and each BLAST hit is assigned to the query or a paralog
+        // (ResolveParalogs). Only the query's own hits go on to the hit
+        // extraction, so paralog loci never reach Exonerate, CDS integrity,
+        // isoforms, alignments, trees or the TE summary. A sample whose query
+        // hits are all paralog loci is marked 'paralog_only'.
         // ------------------------------------------------------------------
+        blast_split = BLASTsearch.out.results
+            .branch { query_id, _sample_id, _results ->
+                paralog: paralog_query_keys.contains(query_id.trim().tokenize(' \t')[0])
+                other: true
+            }
+
         if (params.query_paralog) {
             // One FASTA per query with all its paralogs ('<query>_paralogN'),
             // keyed by the safe form of the query's first header word
@@ -725,22 +697,57 @@ ${lines.join('\n')}
                     }
             )
 
-            query_blast_by_query = BLASTsearch.out.results
-                .map { query_id, _sample_id, results -> [query_id, results] }
-                .groupTuple()
-            paralog_blast_by_query = BLASTparalogs.out.results
-                .map { query_id, _sample_id, results -> [query_id, results] }
-                .groupTuple()
+            // [query_id, sample_id, query_blast, paralog_blast, query_fasta, paralog_fasta]
+            resolve_input = blast_split.paralog
+                .map { query_id, sample_id, results -> [[query_id, sample_id], results] }
+                .join(BLASTparalogs.out.results.map { query_id, sample_id, results -> [[query_id, sample_id], results] })
+                .map { key, query_blast, paralog_blast -> [key[0], key[1], query_blast, paralog_blast] }
+                .combine(paralog_queries.map { query_id, query_fasta, _seq_type, paralog_fasta -> [query_id, query_fasta, paralog_fasta] }, by: 0)
+            ResolveParalogs(resolve_input)
 
             ParalogCheck(
-                paralog_queries
-                    .map { query_id, query_fasta, _seq_type, paralog_fasta -> [query_id, query_fasta, paralog_fasta] }
-                    .join(CombineBlastHits.out.summary)
-                    .join(query_blast_by_query)
-                    .join(paralog_blast_by_query)
+                ResolveParalogs.out.check.groupTuple()
+                    .join(ResolveParalogs.out.loci.groupTuple())
             )
             paralog_done = ParalogCheck.out.table.map { _query_id, tsv -> tsv }.collect()
+
+            // Queries with paralogs: only the query-owned hits are extracted
+            blast_for_extraction = blast_split.other.mix(ResolveParalogs.out.query_hits)
+        } else {
+            blast_for_extraction = blast_split.other
         }
+
+        // Join BLAST results back with scaffolds for region extraction
+        // Format: [query_id, sample_id, blast_results, scaffolds_fasta]
+        blast_with_scaffolds = blast_for_extraction
+            .map { query_id, sample_id, blast_results -> [sample_id, query_id, blast_results] }
+            .combine(all_scaffolds_ch, by: 0)
+            .map { sample_id, query_id, blast_results, scaffolds_fasta ->
+                [query_id, sample_id, blast_results, scaffolds_fasta]
+            }
+
+        ExtractBlastHits(blast_with_scaffolds)
+
+        // Group per-sample outputs by query_id
+        sequences_by_query = ExtractBlastHits.out.sequences
+            .map { query_id, sample_id, fasta -> [query_id, fasta] }
+            .groupTuple()
+
+        hit_info_by_query = ExtractBlastHits.out.hit_info
+            .groupTuple()
+
+        combined_by_query = individual_queries
+            .join(sequences_by_query)
+            .join(hit_info_by_query)
+
+        CombineBlastHits(combined_by_query)
+
+        // Merge per-query summary TSVs into a single wide-format table
+        all_summaries = CombineBlastHits.out.summary
+            .map { query_id, summary_file -> summary_file }
+            .collect()
+
+        MergeBlastSummaries(all_summaries)
 
         // Align BLAST hit sequences across samples
         AlignMAFFT(CombineBlastHits.out.combined_sequences.map { query_id, fasta -> [query_id, "blast", fasta] })
@@ -797,10 +804,12 @@ ${lines.join('\n')}
                 .groupTuple()
 
             // Join query file + all per-sample outputs for each query_id
+            // (the BLAST summary marks paralog-only samples)
             exonerate_combined_input = individual_queries
                 .join(exonerate_cds_by_query)
                 .join(exonerate_prot_by_query)
                 .join(exonerate_summary_by_query)
+                .join(CombineBlastHits.out.summary)
 
             CombineExonerateHits(exonerate_combined_input)
 
@@ -839,6 +848,8 @@ ${lines.join('\n')}
                     def (query_id, cds_aln, prot_aln, summaries, events) = row + [null, null]
                     [query_id, cds_aln, prot_aln, summaries ?: [], events ?: []]
                 }
+                // The BLAST summary marks paralog-only samples
+                .join(CombineBlastHits.out.summary)
             SummarizeIsoforms(isoform_input)
 
             // Isoform trees: one aligned row per CDS / protein isoform

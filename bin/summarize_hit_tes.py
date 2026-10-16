@@ -12,7 +12,8 @@ Input:
                *_all_exonerate_summary.tsv (CombineExonerateHits). Columns used:
                sample_id, subject_id, strand, subject_start, subject_end
                (minus-strand hits have subject_start > subject_end; samples
-               without a hit have subject_id 'no_hits_found').
+               without a hit have subject_id 'no_hits_found', or 'paralog_only' when
+               the query hit only paralog loci; both are reported without TEs).
     --rm-out   RepeatMasker .out tables named <safe_sample_id>_repeatmasker.out,
                where safe_sample_id replaces characters outside [A-Za-z0-9._-]
                with '_' (as in the RepeatMasker process).
@@ -140,7 +141,8 @@ def read_hits(path):
         sid = r['sample_id']
         if not is_hit(r):
             if sid not in n_per_sample:
-                hits.append((sid, None))
+                # None = no hit; 'paralog_only' = the query hit only paralog loci
+                hits.append((sid, 'paralog_only' if r.get('subject_id') == 'paralog_only' else None))
                 n_per_sample[sid] = 0          # report each no-hit sample once
             continue
         idx[sid] = idx.get(sid, 0) + 1
@@ -185,7 +187,7 @@ def main():
     # Read each sample's table once, keeping only the TEs on its hit scaffolds
     hit_scaffolds = {}
     for sid, hit in hits:
-        if hit is not None:
+        if isinstance(hit, dict):
             hit_scaffolds.setdefault(safe_name(sid), set()).add(hit['scaffold'])
     sample_tes = {name: parse_rm_out(rm_files[name], scaffolds)
                   for name, scaffolds in hit_scaffolds.items() if name in rm_files}
@@ -193,8 +195,8 @@ def main():
     te_rows, summary_rows = [], []
     for sid, hit in hits:
         base = {'sample_id': sid, 'query_id': args.query_id}
-        if hit is None:
-            row = dict(base, hit_id='NA', position='no_hit')
+        if not isinstance(hit, dict):
+            row = dict(base, hit_id='NA', position=hit or 'no_hit')
             te_rows.append(row)
             summary_rows.append(dict(base, hit_id='NA'))
             continue

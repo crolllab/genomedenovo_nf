@@ -1,11 +1,15 @@
-// Paralog check (--query_paralog): is the hit reported for a query closer to the
-// query or to one of its known paralogs?
+// Paralog check (--query_paralog): keep the hits of a query that belong to one
+// of its known paralogs out of every downstream step.
 //
-// BLASTparalogs -- per sample x query: BLAST the paralogs of the query against
-//                  the assembly, with the same program and settings as the query
-// ParalogCheck  -- per query: at the hit locus of every sample (the merged BLAST
-//                  span used for hit extraction), compare the BLAST scores of the
-//                  query and of each paralog (paralog_check.py)
+// BLASTparalogs   -- per sample x query: BLAST the paralogs of the query against
+//                    the assembly, with the same program and settings as the query
+// ResolveParalogs -- per sample x query: assign every BLAST hit to the query or a
+//                    paralog and pick the query copy to extract
+//                    (paralog_check.py). Its filtered query BLAST table replaces
+//                    the raw one as input of the hit extraction, so paralog loci
+//                    never reach Exonerate, CDS integrity, isoforms, alignments,
+//                    trees or the TE summary.
+// ParalogCheck    -- per query: merge the per-sample tables
 
 // ---------------------------------------------------------------------------
 // BLASTparalogs  (blast container)
@@ -45,7 +49,35 @@ process BLASTparalogs {
 }
 
 // ---------------------------------------------------------------------------
-// ParalogCheck  (spades container — has python3)
+// ResolveParalogs  (spades container — has python3)
+// ---------------------------------------------------------------------------
+process ResolveParalogs {
+    tag "Resolve paralogs ${sample_id}"
+    errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
+    maxRetries 3
+
+    input:
+    // Query and paralog BLAST tables are both named after the sample; separate
+    // folders keep them apart
+    tuple val(query_id), val(sample_id), path(query_blast, stageAs: 'query_blast/*'),
+          path(paralog_blast, stageAs: 'paralog_blast/*'), path(query_fasta), path(paralog_fasta)
+
+    output:
+    tuple val(query_id), val(sample_id), path("${sample_id}_query_blast_results.tsv"), emit: query_hits
+    tuple val(query_id), path("${sample_id}_paralog_check.tsv"),                      emit: check
+    tuple val(query_id), path("${sample_id}_paralog_loci.tsv"),                       emit: loci
+
+    script:
+    """
+    #!/bin/bash
+    set -euo pipefail
+    paralog_check.py "${sample_id}" '${query_id}' ${query_fasta} ${paralog_fasta} \\
+        ${query_blast} ${paralog_blast} --ambiguous-ratio ${params.paralog_ambiguous_ratio}
+    """
+}
+
+// ---------------------------------------------------------------------------
+// ParalogCheck  (spades container)
 // ---------------------------------------------------------------------------
 process ParalogCheck {
     tag "Paralog check"
@@ -54,20 +86,23 @@ process ParalogCheck {
     publishDir "${params.outdir}/13_summary_data", mode: 'copy'
 
     input:
-    // Query and paralog BLAST tables are both named after the sample; separate
-    // folders keep them apart
-    tuple val(query_id), path(query_fasta), path(paralog_fasta), path(hits_summary),
-          path(query_blast, stageAs: 'query_blast/*'), path(paralog_blast, stageAs: 'paralog_blast/*')
+    tuple val(query_id), path(check_tsvs, stageAs: 'check/*'), path(loci_tsvs, stageAs: 'loci/*')
 
     output:
     tuple val(query_id), path("*_paralog_check.tsv"), emit: table
+    tuple val(query_id), path("*_paralog_loci.tsv"),  emit: loci
 
     script:
     """
     #!/bin/bash
     set -euo pipefail
-    paralog_check.py '${query_id}' ${query_fasta} ${paralog_fasta} ${hits_summary} \\
-        --query-blast query_blast/* --paralog-blast paralog_blast/* \\
-        --ambiguous-ratio ${params.paralog_ambiguous_ratio}
+    clean_id="\$(echo '${query_id}' | sed 's|[^a-zA-Z0-9_.-]|_|g')"
+    # One header, then the sample rows sorted by sample
+    for kind in check loci; do
+        files=( \$kind/* )
+        out="\${clean_id}_paralog_\${kind}.tsv"
+        head -n 1 "\${files[0]}" > "\$out"
+        for f in "\${files[@]}"; do tail -n +2 "\$f"; done | sort -t \$'\\t' -k1,1 >> "\$out"
+    done
     """
 }

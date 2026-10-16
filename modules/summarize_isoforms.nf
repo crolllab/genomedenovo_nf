@@ -24,7 +24,8 @@ process SummarizeIsoforms {
     publishDir "${params.outdir}/13_summary_data", mode: 'copy'
 
     input:
-    tuple val(query_id), path(cds_alignment), path(prot_alignment), path(integrity_tsvs, stageAs: 'integrity/*'), path(event_tsvs, stageAs: 'integrity/*')
+    tuple val(query_id), path(cds_alignment), path(prot_alignment), path(integrity_tsvs, stageAs: 'integrity/*'), path(event_tsvs, stageAs: 'integrity/*'),
+          path(blast_summary, stageAs: 'blast/*')
 
     output:
     path("*.tsv"), emit: isoforms_tsv
@@ -41,6 +42,6 @@ process SummarizeIsoforms {
     integrity=( integrity/*_cds_integrity.tsv )
     events=( integrity/*_cds_integrity_events.tsv )
     summarize_isoforms.py '${query_id}' '${cds_alignment}' '${prot_alignment}' \
-        --integrity "\${integrity[@]}" --events "\${events[@]}"
+        --integrity "\${integrity[@]}" --events "\${events[@]}" --blast-summary ${blast_summary}
     """
 }

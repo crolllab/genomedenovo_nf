@@ -14,7 +14,9 @@ Output:
                                                    cds_sequence, protein_sequence)
     <safe_query_id>_isoforms_incl_truncated.tsv    all sequences, with integrity status and
                                                    mutation description; samples without an
-                                                   Exonerate hit are listed with status no_hit
+                                                   Exonerate hit are listed with status no_hit,
+                                                   or paralog_only when the query hit only
+                                                   paralog loci (--query_paralog)
     <safe_query_id>_isoform_mutations.tsv          one row per mutation event, with isoform IDs
     <safe_query_id>_cds_isoforms.fasta             one ungapped sequence per unique CDS isoform
     <safe_query_id>_protein_isoforms.fasta         one ungapped sequence per unique protein isoform
@@ -166,6 +168,9 @@ def main():
                     help='per-sample *_cds_integrity.tsv files for this query')
     ap.add_argument('--events', nargs='*', default=[],
                     help='per-sample *_cds_integrity_events.tsv files for this query')
+    ap.add_argument('--blast-summary',
+                    help="the query's BLAST hit summary; samples marked 'paralog_only' there "
+                         "(--query_paralog) are listed with status paralog_only, not no_hit")
     args = ap.parse_args()
 
     cds_records = read_fasta(args.cds_fasta)
@@ -195,6 +200,14 @@ def main():
     int_cols, int_rows = read_tsv(args.integrity)
     integrity = {r['sequence_id']: r for r in int_rows if r.get('status') != 'no_hit'}
     no_hit = [r for r in int_rows if r.get('status') == 'no_hit']
+
+    # Samples whose query hits all belong to a paralog: nothing was extracted
+    paralog_only = []
+    if args.blast_summary:
+        _, blast_rows = read_tsv([args.blast_summary])
+        paralog_only = list(dict.fromkeys(r['sample_id'] for r in blast_rows
+                                          if r.get('subject_id') == 'paralog_only'))
+    no_hit_ids = [r['sample_id'] for r in no_hit if r['sample_id'] not in paralog_only]
 
     status_of = {sid: integrity.get(sid, {}).get('status', 'NA') for sid in samples}
     if ref_id is not None:
@@ -237,9 +250,9 @@ def main():
             out.write('\t'.join([sid, str(cds_iso.get(sid, 'NA')), str(prot_iso.get(sid, 'NA')),
                                  status_of.get(sid, 'NA')]
                                 + [row.get(c, 'NA') for c in extra] + seq_cols(sid)) + '\n')
-        for row in no_hit:
-            out.write('\t'.join([row['sample_id'], 'NA', 'NA', 'no_hit']
-                                + ['NA'] * (len(extra) + 2)) + '\n')
+        for sid, status in [(s, 'no_hit') for s in no_hit_ids] + \
+                [(s, 'paralog_only') for s in paralog_only]:
+            out.write('\t'.join([sid, 'NA', 'NA', status] + ['NA'] * (len(extra) + 2)) + '\n')
 
     # --- mutation events with isoform IDs --------------------------------------
     ev_cols, ev_rows = read_tsv(args.events)

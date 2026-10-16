@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **Paralog hits contaminated the downstream outputs (`--query_paralog`).** The paralog check ran after the hit extraction and only reported, so in a sample without the query gene the query's best BLAST hit on a paralog was still extracted, modelled by Exonerate (often as "full_length"), classified, numbered as an isoform and placed in the alignments and trees. The check now runs per sample before the extraction: every BLAST hit is assigned to the query or to the paralog that scores best there, and only the query's own copy is extracted. Samples whose query hits are all paralog loci are `paralog_only` in the BLAST and Exonerate summaries, the isoform table and the TE summary, and are absent from all sequences, alignments and trees. Exonerate gene models must now overlap the extracted BLAST hit span, so a paralog in the padding flank is not modelled.
+- **Paralog table reported paralogs incompletely.** A paralog's "best locus" merged all its hits on a scaffold, so neighbouring paralogs were reported as one locus and the second paralog's own copy was hidden (in IPO323, paralog1's locus spanned both chromosome-10 genes). Every reference's copies are now separated by hit ownership; `{query_id}_paralog_check.tsv` lists for the query and every paralog the number of copies and the best one, and the new `{query_id}_paralog_loci.tsv` lists every copy of every reference per sample. New column `skipped_paralog_loci` lists query hit loci left out because a paralog scores higher there.
+
 - **CDS check of multi-sequence queries with `--search_tool exonerate`.** The startup check for in-frame stop codons joined all query sequences into one, so the terminal stop codon of the first CDS counted as an internal stop and a valid multi-CDS query file was rejected. Each query is now checked on its own, and the error names the offending query.
 
 ## v0.9.1 — 2026-10-15
