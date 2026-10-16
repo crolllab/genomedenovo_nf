@@ -194,33 +194,34 @@ ${problems.collect { p -> '    ' + p }.join('\n')}
     if (params.search_tool == 'exonerate' && params.blast_query) {
         def qfile = file(params.blast_query)
         if (qfile.exists()) {
-            def buf = new StringBuilder()
-            def inSeq = false
+            // Check every query on its own: concatenating them would turn the
+            // terminal stop codon of one CDS into an internal stop of the next.
+            def recs = [:]
+            def name = null
             qfile.eachLine { line ->
-                if (line.startsWith('>')) { inSeq = true }
-                else if (inSeq) { buf.append(line.trim().toUpperCase()) }
+                if (line.startsWith('>')) { name = line.substring(1).trim().split(/\s+/)[0]; recs[name] = new StringBuilder() }
+                else if (name != null) { recs[name].append(line.trim().toUpperCase()) }
             }
-            def seq = buf.toString()
-            if (seq) {
+            def stopCodons = ['TAA', 'TAG', 'TGA'] as Set
+            def withStops = recs.findAll { _qname, sb ->
+                def seq = sb.toString()
+                if (!seq) return false
                 def nucCount = seq.findAll { c -> 'ATGCUN'.contains(c as String) }.size()
-                def isNucl = (nucCount * 100 / seq.size()) >= 95
-                if (isNucl) {
-                    def stopCodons = ['TAA', 'TAG', 'TGA'] as Set
-                    // Only check frame 0: a CDS must start at position 0.
-                    // Checking other frames would produce false positives on any valid CDS.
-                    // Exclude the terminal codon (position seq.size()-3 onward)
-                    def hasStop = (0..<(seq.size() - 3)).step(3).any { i ->
-                        stopCodons.contains(seq.substring(i, i + 3))
-                    }
-                    if (hasStop) {
-                                                exit 1, """ERROR: --search_tool exonerate requires a CDS or protein query, but the nucleotide query contains stop codons in at least one reading frame.
+                if ((nucCount * 100 / seq.size()) < 95) return false
+                // Only check frame 0: a CDS must start at position 0.
+                // Checking other frames would produce false positives on any valid CDS.
+                // Exclude the terminal codon (position seq.size()-3 onward)
+                seq.size() > 3 && (0..<(seq.size() - 3)).step(3).any { i ->
+                    stopCodons.contains(seq.substring(i, i + 3))
+                }
+            }.keySet()
+            if (withStops) {
+                exit 1, """ERROR: --search_tool exonerate requires a CDS or protein query, but the nucleotide query ${withStops.join(', ')} contains in-frame stop codons.
     This suggests the query is genomic DNA with introns, which Exonerate cannot use correctly with the coding2genome model.
   Please provide either:
     - A mature CDS sequence (spliced, no introns, no in-frame stop codons)
     - A protein sequence (amino acid FASTA)
     To use genomic DNA as a locus anchor, run without --search_tool exonerate (BLAST only)."""
-                    }
-                }
             }
         }
     }

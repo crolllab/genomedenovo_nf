@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **CDS check of multi-sequence queries with `--search_tool exonerate`.** The startup check for in-frame stop codons joined all query sequences into one, so the terminal stop codon of the first CDS counted as an internal stop and a valid multi-CDS query file was rejected. Each query is now checked on its own, and the error names the offending query.
+
 ## v0.9.1 — 2026-10-15
 
 Pre-release: functional but not yet fully tested.
