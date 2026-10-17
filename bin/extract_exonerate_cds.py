@@ -408,6 +408,20 @@ def main():
             if not full_cds:
                 continue
 
+            # Exonerate may begin an alignment part-way through a query codon: the vulgar line
+            # then starts at a query base that is not a codon boundary (coding2genome reports
+            # e.g. 'AvrStb9_CDS 2 2183 +', i.e. from the third base of codon 1). The assembled
+            # CDS then opens with an incomplete codon, and translating it from base 0 shifts the
+            # whole protein out of frame. Drop that partial codon so the CDS stays in frame and
+            # the protein is translate(cds).
+            phase = 0
+            try:
+                phase = (1 - int(q_start_val)) % 3
+            except (TypeError, ValueError):
+                phase = 0
+            if phase:
+                full_cds = full_cds[phase:]
+
             prot = translate(full_cds)
             # Name by sample_id for the common single-model case; add a
             # numeric suffix only when multiple gene models are reported.

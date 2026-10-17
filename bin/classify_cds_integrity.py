@@ -904,11 +904,22 @@ class Model:
         # A model incomplete only because of the assembly (contig end, gap) is
         # partial: there is no evidence that the gene itself is truncated.
         causes = [c for c in TRUNCATING_CLASSES if any(e['event_class'] == c for e in ev)]
+        # A non-canonical splice site says where the model put an exon boundary, not that the
+        # product is broken: a boundary placed a base or two off reads as a non-canonical acceptor
+        # while the protein is untouched. On its own, with the reading frame still reaching the
+        # expected stop, it is reported but does not truncate. (Without this, one shared boundary
+        # call made every isolate of a 4,068-genome panel 'truncated' for the same effector.)
+        hard_orf = sorted(t for t in orf_types if t != 'noncanonical_splice_site')
+        splice_only = bool(orf_types) and not hard_orf
         if not causes:
             status = 'full_length'
         elif not del_types and not orf_types:
             status = 'partial'
-        elif not del_types and set(orf_types) == {'stop_lost'}:
+        elif not del_types and splice_only and self.orf_end == 'expected_stop':
+            status = 'full_length'
+            causes = [c for c in causes if c != 'ORF_mutation']
+            self.notes.append('noncanonical_splice_site_only_ORF_intact')
+        elif not del_types and set(hard_orf) == {'stop_lost'}:
             status = 'extended'
         else:
             status = 'truncated'
