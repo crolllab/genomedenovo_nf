@@ -916,8 +916,10 @@ class Model:
         elif not del_types and not orf_types:
             status = 'partial'
         elif not del_types and splice_only and self.orf_end == 'expected_stop':
-            status = 'full_length'
+            # Only the splice call is set aside: a model also cut off by the assembly (contig
+            # edge, gap) is still incomplete, so it stays partial rather than full_length.
             causes = [c for c in causes if c != 'ORF_mutation']
+            status = 'partial' if causes else 'full_length'
             self.notes.append('noncanonical_splice_site_only_ORF_intact')
         elif not del_types and set(hard_orf) == {'stop_lost'}:
             status = 'extended'
