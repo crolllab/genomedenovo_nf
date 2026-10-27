@@ -713,8 +713,13 @@ ${lines.join('\n')}
 
             // Queries with paralogs: only the query-owned hits are extracted
             blast_for_extraction = blast_split.other.mix(ResolveParalogs.out.query_hits)
+
+            // [query_id, paralog_fasta], for the reference locus (--locus_coverage)
+            query_paralog_fastas = paralog_queries
+                .map { query_id, _query_fasta, _seq_type, paralog_fasta -> [query_id, paralog_fasta] }
         } else {
             blast_for_extraction = blast_split.other
+            query_paralog_fastas = channel.empty()
         }
 
         // Join BLAST results back with scaffolds for region extraction
@@ -885,9 +890,11 @@ ${lines.join('\n')}
             // Locus coverage (--locus_coverage)
             // ------------------------------------------------------------------
             if (params.locus_coverage) {
+                // Queries with paralogs: the reference locus must belong to the query
                 blast_locus_input = queries_with_type
-                    .map { query_id, query_fasta, seq_type ->
-                        [query_id, query_fasta, seq_type, file(params.reference_genome)]
+                    .join(query_paralog_fastas, remainder: true)
+                    .map { query_id, query_fasta, seq_type, paralog_fasta ->
+                        [query_id, query_fasta, seq_type, paralog_fasta ?: [], file(params.reference_genome)]
                     }
                 BlastLocusOnReference(blast_locus_input)
 
@@ -935,9 +942,11 @@ ${lines.join('\n')}
             // Locus coverage (--locus_coverage)
             // ------------------------------------------------------------------
             if (params.locus_coverage) {
+                // Queries with paralogs: the reference locus must belong to the query
                 blast_locus_input = queries_with_type
-                    .map { query_id, query_fasta, seq_type ->
-                        [query_id, query_fasta, seq_type, file(params.reference_genome)]
+                    .join(query_paralog_fastas, remainder: true)
+                    .map { query_id, query_fasta, seq_type, paralog_fasta ->
+                        [query_id, query_fasta, seq_type, paralog_fasta ?: [], file(params.reference_genome)]
                     }
                 BlastLocusOnReference(blast_locus_input)
 

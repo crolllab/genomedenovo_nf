@@ -251,6 +251,26 @@ def read_hit_spans(fasta_path):
     return spans
 
 
+def read_paralog_spans(fasta_path):
+    """Return {window_id: [(start, end), ...]}: the paralog copies next to the
+    hit (--query_paralog), in contig coordinates.
+
+    ExtractBlastHits lists them in the header description as
+    'paralogs=s1-e1,s2-e2'. Windows without paralog copies are not listed.
+    """
+    spans = {}
+    with open(fasta_path) as fh:
+        for line in fh:
+            if not line.startswith('>'):
+                continue
+            parts = line[1:].split()
+            for p in parts[1:]:
+                if p.startswith('paralogs='):
+                    spans[parts[0]] = [tuple(int(x) for x in s.split('-'))
+                                       for s in p[len('paralogs='):].split(',')]
+    return spans
+
+
 def parse_gff3_cds(gff_path, hit_spans=None):
     """Return (cds_by_parent, parent_strand, parent_scaffold).
 

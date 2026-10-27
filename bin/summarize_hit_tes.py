@@ -22,7 +22,9 @@ Output:
     <safe_query_id>_scaffold_TEs.tsv          one row per TE on the hit scaffold
     <safe_query_id>_scaffold_TEs_summary.tsv  one row per hit: number of TEs on
                                               the scaffold, overlapping TEs and the
-                                              nearest upstream / downstream TE
+                                              nearest upstream / downstream TE;
+                                              hit_status 'hit', 'no_hit' or
+                                              'paralog_only'
 
 Hit IDs: with Exonerate a sample can carry several gene models; they are named
 sample_id_N (N in file order) as in the Exonerate FASTA headers, and plain
@@ -63,7 +65,7 @@ SUMMARY_COLUMNS = [
     'sample_id', 'hit_id', 'query_id', 'scaffold', 'hit_start', 'hit_end', 'hit_strand',
     'n_TEs_on_scaffold', 'n_overlapping_TEs', 'overlapping_TEs',
     'nearest_upstream_TE', 'nearest_upstream_distance_bp',
-    'nearest_downstream_TE', 'nearest_downstream_distance_bp',
+    'nearest_downstream_TE', 'nearest_downstream_distance_bp', 'hit_status',
 ]
 
 
@@ -198,21 +200,22 @@ def main():
         if not isinstance(hit, dict):
             row = dict(base, hit_id='NA', position=hit or 'no_hit')
             te_rows.append(row)
-            summary_rows.append(dict(base, hit_id='NA'))
+            summary_rows.append(dict(base, hit_id='NA', hit_status=hit or 'no_hit'))
             continue
         base.update(hit_id=hit['hit_id'], scaffold=hit['scaffold'], hit_start=hit['start'],
                     hit_end=hit['end'], hit_strand=hit['strand'])
+        summary_base = dict(base, hit_status='hit')
 
         if safe_name(sid) not in sample_tes:
             # RepeatMasker did not produce a table for this sample
             te_rows.append(dict(base, position='no_repeatmasker_output'))
-            summary_rows.append(dict(base))
+            summary_rows.append(summary_base)
             continue
         tes = sample_tes[safe_name(sid)].get(hit['scaffold'], [])
 
         if not tes:
             te_rows.append(dict(base, position='none'))
-            summary_rows.append(dict(base, n_TEs_on_scaffold=0, n_overlapping_TEs=0))
+            summary_rows.append(dict(summary_base, n_TEs_on_scaffold=0, n_overlapping_TEs=0))
             continue
 
         hit_rows = []
@@ -231,7 +234,7 @@ def main():
         nearest_up = max(up, key=lambda r: r['distance_bp']) if up else {}
         nearest_down = min(down, key=lambda r: r['distance_bp']) if down else {}
         summary_rows.append(dict(
-            base, n_TEs_on_scaffold=len(hit_rows), n_overlapping_TEs=len(overlap),
+            summary_base, n_TEs_on_scaffold=len(hit_rows), n_overlapping_TEs=len(overlap),
             overlapping_TEs=','.join(r['te_name'] for r in overlap) or 'NA',
             nearest_upstream_TE=nearest_up.get('te_name', 'NA'),
             nearest_upstream_distance_bp=nearest_up.get('distance_bp', 'NA'),

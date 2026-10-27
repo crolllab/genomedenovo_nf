@@ -19,7 +19,8 @@ process BlastLocusOnReference {
     publishDir { "${params.outdir}/11_locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
-    tuple val(query_id), path(query_fasta), val(seq_type), path(reference)
+    // paralog_fasta: the query's paralogs (--query_paralog), or [] without
+    tuple val(query_id), path(query_fasta), val(seq_type), path(paralog_fasta), path(reference)
 
     output:
     tuple val(query_id), path("*_ref_locus.tsv"), emit: locus
@@ -28,6 +29,24 @@ process BlastLocusOnReference {
     def qid_safe   = query_id.replaceAll(/[^A-Za-z0-9._-]/, '_')
     def blast_prog  = (seq_type == 'protein') ? 'tblastn' : 'blastn'
     def blast_extra = (seq_type == 'protein') ? '' : '-task blastn'
+    // --query_paralog: the locus must belong to the query. If a paralog hit
+    // overlapping it scores higher, the reference has no copy of the query
+    // there and no locus is reported (coverage NA in every sample).
+    def paralog_check = paralog_fasta ? """
+    if [ -s blast_locus.txt ]; then
+        ${blast_prog} -query ${paralog_fasta} -db ref_db ${blast_extra} \\
+            -outfmt '6 sseqid sstart send sstrand evalue bitscore' \\
+            -num_threads ${task.cpus} \\
+            -out paralog_locus.txt
+        if awk -F'\\t' '
+            NR == FNR { if (FNR == 1) { c = \$1; s = (\$2 < \$3) ? \$2 : \$3; e = (\$2 < \$3) ? \$3 : \$2; b = \$6 }; next }
+            \$1 == c && ((\$2 < \$3) ? \$2 : \$3) <= e && ((\$2 < \$3) ? \$3 : \$2) >= s && \$6 > b { f = 1 }
+            END { exit !f }' blast_locus.txt paralog_locus.txt; then
+            echo "WARNING: The best hit of ${query_id} on the reference belongs to a paralog; no locus" >&2
+            : > blast_locus.txt
+        fi
+    fi
+""" : ''
     """
     set -euo pipefail
 
@@ -38,7 +57,7 @@ process BlastLocusOnReference {
         -max_target_seqs 1 -max_hsps 1 \\
         -num_threads ${task.cpus} \\
         -out blast_locus.txt
-
+${paralog_check}
     # Write header; append best hit if found
     printf 'query_id\\tchrom\\thit_start\\thit_end\\n' > ${qid_safe}_ref_locus.tsv
 

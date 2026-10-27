@@ -39,8 +39,13 @@ Usage:
 Outputs:
     <sample>_query_blast_results.tsv   the query HSPs of the extracted copy, in
                                        BLAST tabular format (input of the hit
-                                       extraction); for a 'paralog' call it
-                                       holds only a '# paralog_only' line
+                                       extraction), then one line
+                                       '# paralog_copy <label> <scaffold>
+                                       <start> <end>' per paralog copy next to
+                                       it (see 'paralog copies next to the
+                                       extracted query copy'); for a 'paralog'
+                                       call it holds only a '# paralog_only'
+                                       line
     <sample>_paralog_check.tsv         one row: the call and every reference's
                                        score at the locus and its own best copy
     <sample>_paralog_loci.tsv          one row per copy of every reference
@@ -200,6 +205,18 @@ def main():
         skipped.append(f"{c['scaffold']}:{c['start']}-{c['end']}({label[best]})")
 
     query_hsps = [h for h in hsps if h['ref'] == query_name]
+
+    # --- paralog copies next to the extracted query copy --------------------
+    # The hit extraction keeps its padding off them and the CDS integrity check
+    # does not search them for missing query segments, so that a neighbouring
+    # paralog is neither modelled (alone or fused to a truncated query copy)
+    # nor taken for part of the query gene.
+    flanking = []
+    if chosen is not None:
+        for name, _, lab in refs[1:]:
+            flanking += [(lab, c) for c in copies[name] if c['scaffold'] == chosen['scaffold']
+                         and not overlap(c['start'], c['end'], chosen['start'], chosen['end'])]
+
     if chosen is not None:
         locus = (chosen['scaffold'], chosen['start'], chosen['end'])
     elif query_hsps:
@@ -273,6 +290,8 @@ def main():
         if chosen is not None:
             for h in chosen['hsps']:
                 out.write(h['line'] + '\n')
+            for lab, c in sorted(flanking, key=lambda x: x[1]['start']):
+                out.write(f"# paralog_copy\t{lab}\t{c['scaffold']}\t{c['start']}\t{c['end']}\n")
         elif row['call'] == 'paralog':
             out.write(f"# paralog_only {row['closest_reference']}\n")
 

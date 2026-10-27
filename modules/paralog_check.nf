@@ -8,7 +8,8 @@
 //                    (paralog_check.py). Its filtered query BLAST table replaces
 //                    the raw one as input of the hit extraction, so paralog loci
 //                    never reach Exonerate, CDS integrity, isoforms, alignments,
-//                    trees or the TE summary.
+//                    trees or the TE summary. It also lists the paralog copies on
+//                    the hit scaffold, which the extraction keeps out of the padding.
 // ParalogCheck    -- per query: merge the per-sample tables
 
 // ---------------------------------------------------------------------------

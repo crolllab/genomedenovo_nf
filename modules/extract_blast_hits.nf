@@ -38,8 +38,8 @@ process ExtractBlastHits {
     # This ensures multi-exon genes (where each exon is a separate BLAST hit)
     # are fully covered in the extracted region fed to Exonerate.
     # Comment lines are skipped: with --query_paralog the table holds only the
-    # query-owned hits (ResolveParalogs), or '# paralog_only' when the query
-    # hits nothing but paralog loci.
+    # query-owned hits (ResolveParalogs) and '# paralog_copy' lines (read
+    # below), or '# paralog_only' when the query hits nothing but paralog loci.
     awk -F'\t' '
     /^#/ { next }
     {
@@ -141,7 +141,29 @@ process ExtractBlastHits {
         if [ "\$padded_end" -gt "\$scaffold_len" ]; then
             padded_end=\$scaffold_len
         fi
-        
+
+        # --query_paralog: the padding stops short of the paralog copies next to
+        # the hit ('# paralog_copy' lines from ResolveParalogs), so Exonerate
+        # cannot model a paralog or fuse it to the query copy. The copies are
+        # also listed in the FASTA header for the CDS integrity check.
+        read -r clip_lo clip_hi paralog_spans < <(awk -F'\t' -v s="\$sseqid" -v a="\$orig_start" -v b="\$orig_end" '
+            \$1 == "# paralog_copy" && \$3 == s {
+                spans = spans (spans == "" ? "" : ",") \$4 "-" \$5
+                if (\$5 < a && \$5 + 1 > lo) lo = \$5 + 1
+                if (\$4 > b && (hi == 0 || \$4 - 1 < hi)) hi = \$4 - 1
+            }
+            END { print lo + 0, hi + 0, (spans == "" ? "none" : spans) }' ${blast_results})
+        if [ "\$clip_lo" -gt "\$padded_start" ]; then
+            padded_start=\$clip_lo
+        fi
+        if [ "\$clip_hi" -gt 0 ] && [ "\$clip_hi" -lt "\$padded_end" ]; then
+            padded_end=\$clip_hi
+        fi
+        description="hit=\${orig_start}-\${orig_end}"
+        if [ "\$paralog_spans" != none ]; then
+            description="\${description} paralogs=\${paralog_spans}"
+        fi
+
         # Final sanity check: Ensure padded coordinates are valid
         if [ "\$padded_start" -lt 1 ] || [ "\$padded_end" -gt "\$scaffold_len" ] || [ "\$padded_start" -gt "\$padded_end" ]; then
             echo "WARNING: Invalid padded coordinates for \$sseqid (\$padded_start-\$padded_end), scaffold length is \$scaffold_len, skipping..." >&2
@@ -171,8 +193,9 @@ process ExtractBlastHits {
             
             # Write sequence with contig name + padded coordinates as header
             # (parsed by extract_exonerate_cds.py to recover absolute coords),
-            # and the unpadded hit span as description (gene models must overlap it)
-            echo ">\${sseqid}:\${start}-\${end} hit=\${orig_start}-\${orig_end}" >> "${sample_id}_top_hits.fasta"
+            # and the unpadded hit span as description (gene models must overlap it),
+            # with the neighbouring paralog copies if any
+            echo ">\${sseqid}:\${start}-\${end} \${description}" >> "${sample_id}_top_hits.fasta"
             fold -w 60 temp_seq.txt >> "${sample_id}_top_hits.fasta"
             echo "" >> "${sample_id}_top_hits.fasta"
             
@@ -206,7 +229,7 @@ process ExtractBlastHits {
                             mv temp_rc.txt temp_subseq.txt
                         fi
                         
-                        echo ">\${sseqid}:\${start}-\${end} hit=\${orig_start}-\${orig_end}" >> "${sample_id}_top_hits.fasta"
+                        echo ">\${sseqid}:\${start}-\${end} \${description}" >> "${sample_id}_top_hits.fasta"
                         # Add newlines every 60 characters for proper FASTA format
                         fold -w 60 temp_subseq.txt >> "${sample_id}_top_hits.fasta"
                         echo "" >> "${sample_id}_top_hits.fasta"

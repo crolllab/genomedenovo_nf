@@ -129,7 +129,7 @@ Final names must be unique (`isolate 1` and `isolate_1` clash). The pipeline che
 | `--blast_query` | – | FASTA with one or more query sequences, each searched separately. Nucleotide queries (≥ 95 % `ACGTUN`) use `blastn`, protein queries `tblastn`. |
 | `--search_tool` | `blast` | `blast`: BLAST only. `exonerate`: BLAST, then Exonerate spliced alignment for exact CDS and protein, CDS integrity and isoforms. Nucleotide queries must then be a **mature CDS** (no introns); the run stops if the query has in-frame stop codons. |
 | `--exonerate_refine` | `region` | Exonerate alignment refinement: `region` (re-align the hit region with full dynamic programming, so exons of divergent alleles are not lost), `full` (refine on the whole extracted window) or `none`. |
-| `--padding` | `500` | bp added on both sides of the BLAST hit when extracting it. The padded region is also the window searched by Exonerate and the locus used by `--locus_coverage`. |
+| `--padding` | `500` | bp added on both sides of the BLAST hit when extracting it. The padded region is also the window searched by Exonerate and the locus used by `--locus_coverage`. With `--query_paralog`, the padding stops short of neighbouring paralog copies. |
 | `--min_align_prop` | `0.8` | Per-query trees leave out sequences covering less than this proportion of the core alignment (the columns of the query reference, or of at least half of the sequences). The query reference is always kept. `0` keeps all sequences. See [methods](#alignment-filter). |
 | `--query_paralog` | – | FASTA with known paralogs of the queries, switching on the [paralog check](#paralog-check). Name each paralog after the first word of its query header plus `_paralog1`, `_paralog2`, … (`>GeneA_paralog1` for the query `>GeneA …`); paralogs must be of the same type (nucleotide/protein) as their query. Queries without paralogs are not checked. |
 | `--paralog_ambiguous_ratio` | `0.95` | Paralog check: a query hit is called `ambiguous` when the second-best reference reaches this fraction of the query's bit score at the locus. Ambiguous hits are kept. |
@@ -212,7 +212,7 @@ Folders are numbered in pipeline order; a folder exists only if its step ran. `{
 - `{query_id}/{query_id}_all_blast_hits.fasta`: Query followed by the hit of every sample, named `>sample_id scaffold:start-end`
 - `{query_id}/{query_id}_all_blast_hits_summary.tsv`: Hit coordinates, identity, e-value and bit score per sample (`no_hits_found` without a hit)
 - `{query_id}/blast_results/{sample_id}_blast_results.tsv`: Raw BLAST tabular output
-- `{query_id}/hit_sequences/{sample_id}_top_hits.fasta` / `_top_hits_info.tsv`: Extracted (padded) hit region per sample, named by its scaffold location
+- `{query_id}/hit_sequences/{sample_id}_top_hits.fasta` / `_top_hits_info.tsv`: Extracted (padded) hit region per sample, named by its scaffold location (`>scaffold:start-end hit=start-end`, the unpadded hit span; with `--query_paralog` also `paralogs=start-end,...`, the paralog copies on the scaffold that the padding stops short of)
 - `{query_id}/paralog_check/{sample_id}_paralog_blast_results.tsv`: Raw BLAST output of the query's paralogs (`--query_paralog`)
 
 With `--query_paralog`, samples whose query hits all belong to a paralog have `subject_id` `paralog_only` in the hit summaries (BLAST and Exonerate), and no hit sequence. `blast_results/` keeps the raw, unfiltered BLAST output.
@@ -242,7 +242,7 @@ IQ-TREE trees, built when an alignment has at least 3 unique sequences after [pa
 
 ### 11 — Locus coverage (`11_locus_coverage/{query_id}/`)
 - `{query_id}_all_locus_coverage.tsv`: All samples; per-sample tables `{sample_id}_{query_id}_locus_coverage.tsv`. Columns: `scaffold`, `hit_start`, `hit_end` (query hit on the reference), `locus_start`, `locus_end` (hit ± `--padding`), `locus_mean_depth`, `locus_median_depth`, `genome_mean_depth`, `genome_sd_depth`
-- `{query_id}_ref_locus.tsv`: Best hit of the query on the reference
+- `{query_id}_ref_locus.tsv`: Best hit of the query on the reference (empty with `--query_paralog` when a paralog scores higher at that hit: the reference has no copy of the query, and the coverage columns are `NA`)
 
 ### 12 — RepeatMasker (`12_repeatmasker/`)
 - `{sample_id}_repeatmasker.out`: Annotation table with TE class/family
@@ -254,8 +254,8 @@ IQ-TREE trees, built when an alignment has at least 3 unique sequences after [pa
 #### TEs near the hit (`--repeat_library` with `--blast_query`)
 The hit is the Exonerate gene model with `--search_tool exonerate`, otherwise the BLAST hit. Distances are edge to edge in bp, in the hit's own **5'→3' orientation**: negative = TE upstream (5') of the hit, positive = downstream (3'), 0 = TE overlaps the hit (introns included). On a minus-strand hit, upstream therefore means higher scaffold coordinates.
 
-- **`{query_id}_scaffold_TEs.tsv`**: One row per TE on the hit scaffold, ordered 5'→3'. Columns: `sample_id`, `hit_id` (`{sample}_{n}` for several gene models), `query_id`, `scaffold`, `hit_start`, `hit_end`, `hit_strand`, `te_name`, `te_class`, `te_start`, `te_end`, `te_strand`, `te_orientation` (`same`/`opposite` strand as the hit), `te_length`, `position` (`upstream`, `downstream`, `overlap`; `none` = no TE on the scaffold, `no_hit` = sample without hit), `distance_bp`, `perc_div` (divergence from the consensus), `sw_score`, `te_id`
-- `{query_id}_scaffold_TEs_summary.tsv`: One row per hit: number of TEs on the scaffold, overlapping TEs, nearest upstream and downstream TE with distance
+- **`{query_id}_scaffold_TEs.tsv`**: One row per TE on the hit scaffold, ordered 5'→3'. Columns: `sample_id`, `hit_id` (`{sample}_{n}` for several gene models), `query_id`, `scaffold`, `hit_start`, `hit_end`, `hit_strand`, `te_name`, `te_class`, `te_start`, `te_end`, `te_strand`, `te_orientation` (`same`/`opposite` strand as the hit), `te_length`, `position` (`upstream`, `downstream`, `overlap`; `none` = no TE on the scaffold, `no_hit` = sample without hit, `paralog_only` = the query hit only paralog loci, `--query_paralog`), `distance_bp`, `perc_div` (divergence from the consensus), `sw_score`, `te_id`
+- `{query_id}_scaffold_TEs_summary.tsv`: One row per hit: number of TEs on the scaffold, overlapping TEs, nearest upstream and downstream TE with distance; `hit_status` (`hit`, `no_hit`, `paralog_only`)
 
 <a id="paralog-check-table"></a>
 #### Paralog check (`--query_paralog`)
@@ -330,7 +330,7 @@ The intact-only table therefore numbers consecutively.
 3. The query copy to extract is chosen as without paralogs (the one with the best single hit), but among the query's own copies only. It must also win at the locus level: bit scores of non-overlapping hits over the copy's span are summed (greedy by score) per reference, and no paralog may score higher than the query. Otherwise the copy is skipped and the next is tried.
 4. Only the hits of the chosen copy go on to the hit extraction. If no query copy remains, the sample is `paralog_only`: nothing is extracted, and it is absent from the hit FASTA, alignments, trees, Exonerate, CDS integrity, isoforms and the TE summary.
 
-As a further guard, Exonerate gene models must overlap the extracted BLAST hit span; a model that lies only in the `--padding` flank (e.g. a neighbouring paralog) is discarded. Ambiguous calls are kept downstream and flagged in the paralog table. See [the output tables](#paralog-check-table).
+Paralog copies on the scaffold of the extracted query copy (e.g. a tandem paralog) are kept out of its flanks: the `--padding` stops short of them, so Exonerate can neither model the paralog nor fuse it to a truncated query copy, and the CDS integrity check masks them when it looks for missing query segments in the flanking contig. A query exon that scores higher against a paralog than against the query is treated as the paralog's, consistent with step 1. As a further guard, Exonerate gene models must overlap the extracted BLAST hit span; a model that lies only in the flank is discarded. With `--locus_coverage`, the query's locus on the reference is dropped if a paralog scores higher there. Ambiguous calls are kept downstream and flagged in the paralog table. See [the output tables](#paralog-check-table).
 
 **Reference mapping and locus coverage.** Trimmed reads are mapped with BWA-mem2, filtered at MAPQ ≥ 10, sorted and indexed. For `--locus_coverage`, the query is BLASTed against the reference to find its locus. Per sample, the mean and median depth over the locus ± `--padding` (MAPQ ≥ 20) are compared with the mean and SD of per-base depth over the whole genome.
 

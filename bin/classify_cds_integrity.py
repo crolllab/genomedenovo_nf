@@ -37,6 +37,9 @@ intact (in-frame start/stop codon at the expected distance)? (2) if not, is
 the missing segment present in the flanking contig sequence (rescue alignment
 with exonerate est2genome / protein2genome)? A segment that is present means
 the ORF is disrupted; a segment that is absent means a nucleotide-level loss.
+Paralog copies next to the hit (--query_paralog; 'paralogs=' in the target
+FASTA header) are masked for the rescue: a segment found only in a paralog is
+not part of the query gene.
 
 Usage:
     classify_cds_integrity.py --sample S --query-id Q --query query.fasta \\
@@ -56,7 +59,7 @@ import subprocess
 import sys
 import tempfile
 
-from extract_exonerate_cds import CODON, parse_gff3_cds, rc, read_hit_spans
+from extract_exonerate_cds import CODON, parse_gff3_cds, rc, read_hit_spans, read_paralog_spans
 
 
 SUMMARY_COLUMNS = [
@@ -171,14 +174,17 @@ class Context:
 
     ``seq`` is the contig (or, without assembly, the Exonerate target window)
     oriented 5'->3' along the gene; ``to_contig`` maps a 0-based position in
-    ``seq`` to a 1-based contig coordinate.
+    ``seq`` to a 1-based contig coordinate. ``rescue_seq`` is ``seq`` with the
+    paralog copies next to the hit (*paralogs*, contig coordinates) set to N:
+    missing query segments are not searched for in a paralog.
     """
 
-    def __init__(self, blk, window_seqs, assembly):
+    def __init__(self, blk, window_seqs, assembly, paralogs=()):
         t_id = blk['t_id']
         window = window_seqs[t_id]
         m = re.match(r'^(.+):(\d+)-(\d+)$', t_id)
         contig, ws, we = (m.group(1), int(m.group(2)), int(m.group(3))) if m else (t_id, 1, len(window))
+        window_start = ws
 
         self.exact = False
         cseq = assembly.get(contig) if assembly else None
@@ -200,6 +206,18 @@ class Context:
         # Gene orientation on the contig
         self.minus = (blk['t_strand'] == '-') != win_rc
         self.seq = rc(cseq) if self.minus else cseq
+
+        rescue = list(self.seq)
+        for s, e in paralogs:
+            if not self.exact:
+                # Window coordinates (ExtractBlastHits writes windows forward)
+                s, e = s - window_start + 1, e - window_start + 1
+            s, e = max(1, s), min(self.length, e)
+            if s > e:
+                continue
+            p0, p1 = (self.length - e, self.length - s + 1) if self.minus else (s - 1, e)
+            rescue[p0:p1] = 'N' * (p1 - p0)
+        self.rescue_seq = ''.join(rescue)
 
         # First aligned window base (0-based) -> contig -> oriented position
         w0 = blk['t_start'] if blk['t_strand'] == '+' else blk['t_start'] - 1
@@ -760,6 +778,9 @@ class Model:
             return
 
         hit = None
+        # Rescue alignments run on the contig with neighbouring paralog copies masked
+        rseq = self.ctx.rescue_seq
+        rflank = rseq[fl0:fl0 + len(flank)]
         if not a.no_rescue:
             if self.nt:
                 # 3' segment keeps the reference stop codon as extra anchor
@@ -769,15 +790,15 @@ class Model:
                 segment = self.ref_aa[k0:k1]
             if m <= SHORT_SEGMENT_AA:
                 # Small indels only: search just beyond the expected position
-                near = seq[max(0, anchor - need - 30):anchor] if end == '5prime' \
-                    else seq[anchor:anchor + need + 30]
+                near = rseq[max(0, anchor - need - 30):anchor] if end == '5prime' \
+                    else rseq[anchor:anchor + need + 30]
                 off = max(0, anchor - need - 30) if end == '5prime' else anchor
                 hit = local_rescue(segment, near, self.nt)
                 if hit is not None:
                     hit['t0'] += off - fl0
                     hit['t1'] += off - fl0
             if hit is None and m >= a.min_rescue_aa:
-                hit = rescue_segment(segment, flank, self.nt, a.rescue_min_fraction)
+                hit = rescue_segment(segment, rflank, self.nt, a.rescue_min_fraction)
 
         if hit is not None:
             unit = 1 if self.nt else 3
@@ -820,6 +841,8 @@ class Model:
                 self.notes.append(f'{end}_contig_end_{flank_len}nt_beyond_alignment')
         if 'telomeric_repeats' in notes:
             why += ' (telomeric repeats in flank)'
+        if rflank != flank:
+            why += ' (paralog copy in flank not searched)'
         if end == '3prime' and self.ext_downstream and self.ext_downstream[1] is not None:
             n, sp = self.ext_downstream
             why += f'; ORF continues {n} codon(s) into flank then {seq[sp:sp + 3]}'
@@ -1034,6 +1057,7 @@ def main():
 
     if models:
         window_seqs = read_fasta_full(args.target)
+        paralog_spans = read_paralog_spans(args.target)
         assembly = {}
         if args.assembly and os.path.exists(args.assembly):
             wanted = {re.sub(r':\d+-\d+$', '', b['t_id']) for _, b in models}
@@ -1042,7 +1066,7 @@ def main():
             if blk['t_id'] not in window_seqs:
                 sys.stderr.write(f'WARNING: target {blk["t_id"]} not in {args.target}\n')
                 continue
-            ctx = Context(blk, window_seqs, assembly)
+            ctx = Context(blk, window_seqs, assembly, paralog_spans.get(blk['t_id'], ()))
             model = Model(args, header, blk, ctx, query_seq, nucleotide)
             model.analyse()
             rows.append(model.summary(args.sample, args.query_id))
