@@ -23,6 +23,8 @@ params.phylo_tree       = false // Optional: build BUSCO-gene supermatrix phylog
 params.busco_tree       = 'raxml-ng' // Phylogenetic tool for BUSCO supermatrix: 'raxml-ng' (default) or 'iqtree'
 params.busco_subsample  = 100   // Number of BUSCO genes to randomly subsample for the supermatrix (integer or 'all')
 params.locus_coverage   = false // Optional: compute read depth at query BLAST locus on reference (requires --blast_query and --reference_genome)
+params.locus_conflict_min_depth_ratio = 0.3 // Locus coverage: flag samples without the query in the assembly whose hit depth reaches this fraction of the genome depth
+params.locus_conflict_min_breadth     = 80  // ... and whose hit breadth (% of bases with >= 1 read) reaches this value
 params.slurm_queue      = ""    // Required when using -profile slurm: SLURM partition name (e.g. 'long', 'normal')
 
 

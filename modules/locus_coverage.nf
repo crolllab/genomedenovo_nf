@@ -101,11 +101,11 @@ process ComputeLocusCoverage {
     # Write header unconditionally
     printf 'sample_id\\tquery_id\\tscaffold\\thit_start\\thit_end\\t' > "\$OUT"
     printf 'locus_start\\tlocus_end\\tlocus_mean_depth\\tlocus_median_depth\\t' >> "\$OUT"
-    printf 'genome_mean_depth\tgenome_sd_depth\n'      >> "\$OUT"
+    printf 'genome_mean_depth\\tgenome_sd_depth\\thit_mean_depth\\thit_breadth_pct\\n' >> "\$OUT"
 
     # No BLAST hit for this query on the reference — write NA row and exit
     if [ -z "\$CHROM" ]; then
-        printf '%s\\t%s\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\n' \\
+        printf '%s\\t%s\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\tNA\\n' \\
             "${sample_id}" "${query_id}" >> "\$OUT"
         exit 0
     fi
@@ -143,6 +143,12 @@ process ComputeLocusCoverage {
             else printf "%.1f", (a[n/2] + a[n/2+1]) / 2
         }')
 
+    # ── Depth and breadth (% of bases with >= 1 read) over the unpadded hit ──
+    read -r HIT_MEAN HIT_BREADTH < <(awk -v s="\$HIT_START" -v e="\$HIT_END" '
+        \$2 >= s && \$2 <= e { t += \$3; n++; if (\$3 > 0) c++ }
+        END { if (n > 0) printf "%.2f %.1f\\n", t / n, 100 * c / n; else print "NA NA" }
+    ' locus_depth.txt)
+
     # ── Genome-wide per-bp depth (MQ >= 20): mean and SD via single streaming pass ──
     samtools depth -q 20 -a ${bam} | awk '
     BEGIN { s=0; s2=0; n=0 }
@@ -157,12 +163,13 @@ process ComputeLocusCoverage {
     GENOME_SD=\$(  awk '{print \$2}' genome_window_stats.txt)
 
     # ── Write data row ────────────────────────────────────────────────────────
-    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
         "${sample_id}" "${query_id}" \\
         "\$CHROM" "\$HIT_START" "\$HIT_END" \\
         "\$LOCUS_START" "\$LOCUS_END" \\
         "\$LOCUS_MEAN" "\$LOCUS_MEDIAN" \\
         "\$GENOME_MEAN" "\$GENOME_SD" \\
+        "\$HIT_MEAN" "\$HIT_BREADTH" \\
         >> "\$OUT"
     """
 }
@@ -175,7 +182,9 @@ process MergeLocusCoverage {
     publishDir { "${params.outdir}/11_locus_coverage/${query_id}" }, mode: 'copy'
 
     input:
-    tuple val(query_id), path(tsvs)
+    // blast_summary: the query's BLAST hit summary (CombineBlastHits), for the
+    // assembly status of every sample
+    tuple val(query_id), path(tsvs), path(blast_summary, stageAs: 'blast/*')
 
     output:
     tuple val(query_id), path("*_all_locus_coverage.tsv"), emit: merged
@@ -187,10 +196,31 @@ process MergeLocusCoverage {
 
     files=( ${tsvs.join(' ')} )
 
-    # Header from first file; data rows (skip header) from all files, sorted
-    head -1 "\${files[0]}" > ${qid_safe}_all_locus_coverage.tsv
+    # Coverage conflict: the assembly has no copy of the query (no BLAST hit,
+    # or with --query_paralog only paralog hits) while the reads cover the
+    # query's locus on the reference, e.g. an allele that failed to assemble
+    head -1 "\${files[0]}" | awk '{ print \$0 "\\thit_to_genome_depth_ratio\\tassembly_hit\\tcoverage_conflict" }' \
+        > ${qid_safe}_all_locus_coverage.tsv
     for f in "\${files[@]}"; do
         tail -n +2 "\$f"
-    done | sort -k1,1 >> ${qid_safe}_all_locus_coverage.tsv
+    done | sort -k1,1 | awk -F'\\t' -v OFS='\\t' \
+        -v min_ratio=${params.locus_conflict_min_depth_ratio} -v min_breadth=${params.locus_conflict_min_breadth} '
+        NR == FNR {
+            if (FNR > 1 && st[\$1] != "hit")
+                st[\$1] = (\$3 == "paralog_only") ? "paralog_only" : (\$3 == "no_hits_found") ? "no_hit" : "hit"
+            next
+        }
+        {
+            # 10 genome_mean_depth, 12 hit_mean_depth, 13 hit_breadth_pct
+            ratio = (\$10 + 0 > 0 && \$12 != "NA") ? sprintf("%.3f", \$12 / \$10) : "NA"
+            hit = (\$1 in st) ? st[\$1] : "NA"
+            conflict = "NA"
+            if (ratio != "NA" && hit != "NA") {
+                conflict = "none"
+                if (hit != "hit" && ratio + 0 >= min_ratio && \$13 + 0 >= min_breadth)
+                    conflict = hit "_locus_covered"
+            }
+            print \$0, ratio, hit, conflict
+        }' ${blast_summary} - >> ${qid_safe}_all_locus_coverage.tsv
     """
 }

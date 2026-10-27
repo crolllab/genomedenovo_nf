@@ -159,6 +159,8 @@ The per-query trees (BLAST hits, Exonerate CDS/protein, isoforms) do not need `-
 |---|---|---|
 | `--reference_genome` | – | Map the trimmed reads to this reference with BWA-mem2. Needs read input. |
 | `--locus_coverage` | off | Compare read depth at the query locus of the reference with the genome-wide depth. Needs `--reference_genome`, `--blast_query` and read input. |
+| `--locus_conflict_min_depth_ratio` | `0.3` | Locus coverage: a sample whose assembly lacks the query (no hit, or only paralog hits) is flagged when the read depth over the reference hit reaches this fraction of its genome depth… |
+| `--locus_conflict_min_breadth` | `80` | …and at least this percentage of the hit's bases is covered by reads. See `coverage_conflict` in the [locus coverage table](#locus-coverage-table). |
 
 ### Repeats
 
@@ -240,8 +242,9 @@ IQ-TREE trees, built when an alignment has at least 3 unique sequences after [pa
 - `{sample_id}_sorted.bam` (+ `.bai`): Sorted alignments, MAPQ ≥ 10
 - `{sample_id}_flagstat.json`: SAMtools flagstat per sample
 
+<a id="locus-coverage-table"></a>
 ### 11 — Locus coverage (`11_locus_coverage/{query_id}/`)
-- `{query_id}_all_locus_coverage.tsv`: All samples; per-sample tables `{sample_id}_{query_id}_locus_coverage.tsv`. Columns: `scaffold`, `hit_start`, `hit_end` (query hit on the reference), `locus_start`, `locus_end` (hit ± `--padding`), `locus_mean_depth`, `locus_median_depth`, `genome_mean_depth`, `genome_sd_depth`
+- `{query_id}_all_locus_coverage.tsv`: All samples; per-sample tables `{sample_id}_{query_id}_locus_coverage.tsv`. Columns: `scaffold`, `hit_start`, `hit_end` (query hit on the reference), `locus_start`, `locus_end` (hit ± `--padding`), `locus_mean_depth`, `locus_median_depth`, `genome_mean_depth`, `genome_sd_depth`, `hit_mean_depth` and `hit_breadth_pct` (over the unpadded hit; breadth = % of bases with ≥ 1 read), `hit_to_genome_depth_ratio`, `assembly_hit` (the sample's query hit in its assembly: `hit`, `no_hit`, `paralog_only`), `coverage_conflict`: `no_hit_locus_covered` / `paralog_only_locus_covered` when the assembly has no copy of the query but the reads cover its reference locus (thresholds `--locus_conflict_min_depth_ratio`, `--locus_conflict_min_breadth`), e.g. an allele that failed to assemble; such samples are also listed as warnings in the run log. Otherwise `none`. Samples are named as in the other tables (after `--SRR_sample_map`)
 - `{query_id}_ref_locus.tsv`: Best hit of the query on the reference (empty with `--query_paralog` when a paralog scores higher at that hit: the reference has no copy of the query, and the coverage columns are `NA`)
 
 ### 12 — RepeatMasker (`12_repeatmasker/`)
@@ -332,7 +335,7 @@ The intact-only table therefore numbers consecutively.
 
 Paralog copies on the scaffold of the extracted query copy (e.g. a tandem paralog) are kept out of its flanks: the `--padding` stops short of them, so Exonerate can neither model the paralog nor fuse it to a truncated query copy, and the CDS integrity check masks them when it looks for missing query segments in the flanking contig. A query exon that scores higher against a paralog than against the query is treated as the paralog's, consistent with step 1. As a further guard, Exonerate gene models must overlap the extracted BLAST hit span; a model that lies only in the flank is discarded. With `--locus_coverage`, the query's locus on the reference is dropped if a paralog scores higher there. Ambiguous calls are kept downstream and flagged in the paralog table. See [the output tables](#paralog-check-table).
 
-**Reference mapping and locus coverage.** Trimmed reads are mapped with BWA-mem2, filtered at MAPQ ≥ 10, sorted and indexed. For `--locus_coverage`, the query is BLASTed against the reference to find its locus. Per sample, the mean and median depth over the locus ± `--padding` (MAPQ ≥ 20) are compared with the mean and SD of per-base depth over the whole genome.
+**Reference mapping and locus coverage.** Trimmed reads are mapped with BWA-mem2, filtered at MAPQ ≥ 10, sorted and indexed. For `--locus_coverage`, the query is BLASTed against the reference to find its locus. Per sample, the mean and median depth over the locus ± `--padding` (MAPQ ≥ 20) are compared with the mean and SD of per-base depth over the whole genome. Depth and breadth over the hit itself are checked against the sample's assembly: a sample without the query in its assembly (no BLAST hit, or only paralog hits with `--query_paralog`) but with reads covering the locus is flagged in `coverage_conflict`. The `paralog_only` / `no_hit` call then reflects the assembly, not the genome.
 
 **TEs.** RepeatMasker annotates every assembly with the given library. TEs on the scaffold of each query hit are reported with their position relative to the hit (see [section 13](#13--summary-tables-13_summary_data)); simple repeats and low-complexity regions are left out.
 

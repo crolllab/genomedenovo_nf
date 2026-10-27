@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Coverage conflict flag (`--locus_coverage`).** A sample whose assembly has no copy of a query (no BLAST hit, or with `--query_paralog` only paralog hits) can still carry it: on a 4,068-genome panel, one isolate called `paralog_only` for AvrStb6 had 78 uniquely mapped read pairs over the IPO323 AvrStb6 gene (0.74× genome depth, a divergent allele that SPAdes did not assemble). The locus coverage table now also reports depth and breadth over the unpadded reference hit, the hit-to-genome depth ratio, the sample's assembly status (`assembly_hit`) and `coverage_conflict` (`paralog_only_locus_covered` / `no_hit_locus_covered`) when both thresholds are reached (`--locus_conflict_min_depth_ratio` 0.3, `--locus_conflict_min_breadth` 80 %). Flagged samples are also listed as warnings in the run log.
+
 ### Changed
 
 - **Task resources matched to what the tools use** (measured with SLURM accounting on the Oct 2026 runs). BLASTsearch, BLASTparalogs and BlastLocusOnReference use 1 CPU (they kept ~1 of 4 cores busy); fastp 8 (was the profile default, 16 on SLURM); AlignBuscoGene 4 (was 16, for seconds-long alignments); the per-query IQ-TREE trees 4, with `-T AUTO` picking the thread count up to that; BUSCO 8 CPUs and 8 GB (was 2 CPUs and 4 GB, CPU-bound and at its memory limit); RAxML-NG 8 GB (was 32 GB, peak 3 GB); CombineBlastHits 2 GB (was 8 GB). Resources are now set only in `nextflow.config`, no longer partly in the modules where the config silently overrode them.

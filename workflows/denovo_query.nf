@@ -898,17 +898,32 @@ ${lines.join('\n')}
                     }
                 BlastLocusOnReference(blast_locus_input)
 
+                // BAMs carry the read sample IDs; the final names match the hit summaries
                 locus_cov_input = bam_ch_for_locus
                     .combine(BlastLocusOnReference.out.locus)
                     .map { sample_id, bam, bai, query_id, locus_tsv ->
-                        [query_id, sample_id, bam, bai, locus_tsv]
+                        [query_id, finalName(rename_map, sample_id), bam, bai, locus_tsv]
                     }
                 ComputeLocusCoverage(locus_cov_input)
 
+                // The BLAST hit summary gives each sample's assembly status, so
+                // that reads covering the locus of a query missing from the
+                // assembly are flagged (coverage_conflict)
                 cov_by_query = ComputeLocusCoverage.out.coverage
                     .map { query_id, sample_id, tsv -> [query_id, tsv] }
                     .groupTuple()
+                    .join(CombineBlastHits.out.summary)
                 MergeLocusCoverage(cov_by_query)
+
+                MergeLocusCoverage.out.merged
+                    .map { _query_id, f -> f }
+                    .splitCsv(header: true, sep: '\t')
+                    .filter { row -> row.coverage_conflict?.endsWith('_locus_covered') }
+                    .subscribe { row ->
+                        log.warn "${row.sample_id}: reads cover the reference locus of ${row.query_id} " +
+                            "(depth ratio ${row.hit_to_genome_depth_ratio}, breadth ${row.hit_breadth_pct} %), " +
+                            "but the assembly has ${row.assembly_hit == 'paralog_only' ? 'only paralog hits' : 'no hit'}"
+                    }
 
                 locus_cov_done = MergeLocusCoverage.out.merged
                     .map { query_id, f -> f }.collect()
@@ -950,17 +965,32 @@ ${lines.join('\n')}
                     }
                 BlastLocusOnReference(blast_locus_input)
 
+                // BAMs carry the read sample IDs; the final names match the hit summaries
                 locus_cov_input = bam_ch_for_locus
                     .combine(BlastLocusOnReference.out.locus)
                     .map { sample_id, bam, bai, query_id, locus_tsv ->
-                        [query_id, sample_id, bam, bai, locus_tsv]
+                        [query_id, finalName(rename_map, sample_id), bam, bai, locus_tsv]
                     }
                 ComputeLocusCoverage(locus_cov_input)
 
+                // The BLAST hit summary gives each sample's assembly status, so
+                // that reads covering the locus of a query missing from the
+                // assembly are flagged (coverage_conflict)
                 cov_by_query = ComputeLocusCoverage.out.coverage
                     .map { query_id, sample_id, tsv -> [query_id, tsv] }
                     .groupTuple()
+                    .join(CombineBlastHits.out.summary)
                 MergeLocusCoverage(cov_by_query)
+
+                MergeLocusCoverage.out.merged
+                    .map { _query_id, f -> f }
+                    .splitCsv(header: true, sep: '\t')
+                    .filter { row -> row.coverage_conflict?.endsWith('_locus_covered') }
+                    .subscribe { row ->
+                        log.warn "${row.sample_id}: reads cover the reference locus of ${row.query_id} " +
+                            "(depth ratio ${row.hit_to_genome_depth_ratio}, breadth ${row.hit_breadth_pct} %), " +
+                            "but the assembly has ${row.assembly_hit == 'paralog_only' ? 'only paralog hits' : 'no hit'}"
+                    }
 
                 locus_cov_done = MergeLocusCoverage.out.merged
                     .map { query_id, f -> f }.collect()
