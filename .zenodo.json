@@ -8,7 +8,7 @@
   ],
   "title": "crolllab/genomedenovo_nf",
   "description": "Nextflow pipeline for de novo genome assembly, assembly QC and query gene search (BLAST, Exonerate) across genome panels, with CDS integrity, isoform, paralog and transposable element analyses.",
-  "license": "cc-by-4.0",
+  "license": "mit",
   "keywords": [
     "nextflow",
     "de novo assembly",
