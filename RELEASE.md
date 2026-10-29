@@ -30,7 +30,7 @@ Done for v1.0.0; kept for reference. Zenodo archival and a public documentation 
 1. **Make the repository public** (*Settings → General → Danger Zone → Change visibility*).
 2. **GitHub Pages** — *Settings → Pages → Build and deployment → Source*: **GitHub Actions**. The *Deploy docs* workflow (`.github/workflows/docs.yml`) then publishes `docs/` to <https://crolllab.github.io/genomedenovo_nf/> on every push to `main` that touches `docs/` or `mkdocs.yml`; it can also be started by hand (*Actions → Deploy docs to GitHub Pages → Run workflow*).
 3. **Zenodo** — on <https://zenodo.org/account/settings/github/>, sync and switch on `crolllab/genomedenovo_nf`. Metadata comes from `.zenodo.json`. Release archives leave out `docs/`, `.github/` and `mkdocs.yml` (`.gitattributes`).
-4. **After the first archived release**, add the DOI: the concept DOI (all versions) to `CITATION.cff` (`doi:` and `identifiers:`, as in genomepanel_nf), and the DOI badge and citation to `docs/index.md` (placeholders are in HTML comments there).
+4. **DOI** — the concept DOI [10.5281/zenodo.23764357](https://doi.org/10.5281/zenodo.23764357) (all versions, resolves to the latest) is in `CITATION.cff` and `docs/index.md`; each release also gets its own version DOI on Zenodo.
 
 ## Preview the docs locally
 

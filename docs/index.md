@@ -8,9 +8,7 @@ The pipeline is designed to run both on HPC clusters via SLURM or on single mach
 
 [Get started :octicons-rocket-16:](getting-started.md){ .md-button .md-button--primary }
 [View on GitHub :octicons-mark-github-16:](https://github.com/crolllab/genomedenovo_nf){ .md-button }
-<!-- Add the Zenodo DOI badge once the first release has been archived (see RELEASE.md):
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXXX)
--->
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23764357.svg)](https://doi.org/10.5281/zenodo.23764357)
 
 ---
 
@@ -192,8 +190,8 @@ Questions, bug reports and feature requests are welcome on the [GitHub Issues](h
 
 If you use genomedenovo_nf in your research, please cite:
 
-> Croll, D. (2026). _genomedenovo_nf_ - a Nextflow pipeline for de novo genome assembly and BLAST-based querying (v1.0.0). [https://github.com/crolllab/genomedenovo_nf](https://github.com/crolllab/genomedenovo_nf)
+> Croll, D. (2026). _genomedenovo_nf_ - a Nextflow pipeline for de novo genome assembly and BLAST-based querying (v1.0.0). Zenodo. [https://doi.org/10.5281/zenodo.23764357](https://doi.org/10.5281/zenodo.23764357)
 
-<!-- Replace the GitHub link with the Zenodo DOI and add its badge once the first release has been archived (see RELEASE.md). -->
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23764357.svg)](https://doi.org/10.5281/zenodo.23764357)
 
 Please also cite the underlying tools listed in the [Software table](#software-used-by-genomedenovo_nf) above.
