@@ -1,0 +1,21 @@
+{
+  "creators": [
+    {
+      "name": "Croll, Daniel",
+      "affiliation": "Laboratory of Evolutionary Genetics, University of Neuchâtel",
+      "orcid": "0000-0002-2072-380X"
+    }
+  ],
+  "title": "crolllab/genomedenovo_nf",
+  "description": "Nextflow pipeline for de novo genome assembly, assembly QC and query gene search (BLAST, Exonerate) across genome panels, with CDS integrity, isoform, paralog and transposable element analyses.",
+  "license": "cc-by-4.0",
+  "keywords": [
+    "nextflow",
+    "de novo assembly",
+    "SPAdes",
+    "BLAST",
+    "Exonerate",
+    "genome panel",
+    "bioinformatics"
+  ]
+}

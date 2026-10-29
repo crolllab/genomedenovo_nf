@@ -43,7 +43,7 @@ All outputs are written to `nf_output/` (configurable via `--outdir`). Key subfo
 ## When Modifying This Codebase
 1. Add new processes in `modules/`, include in `workflows/denovo_query.nf`, and map containers in `nextflow.config`.
 2. Maintain `[sample_id, file(s)]` tuple structure for all channels.
-3. Add new parameters to `main.nf` and document in `README.md`.
+3. Add new parameters to `main.nf` and document them in `docs/configuration.md` (the GitHub Pages site).
 4. Update both the `singularity/` directory and `nextflow.config` for new/updated containers.
 5. Use `publishDir` with `mode: 'copy'` for all final outputs.
 

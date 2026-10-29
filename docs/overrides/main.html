@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  <link rel="apple-touch-icon" sizes="180x180" href="https://crolllab.github.io/genomedenovo_nf/assets/favicon.png">
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="{{ config.site_name }}" />
+  <meta property="og:title" content="{% if page and page.title %}{{ page.title }} – {{ config.site_name }}{% else %}{{ config.site_name }}{% endif %}" />
+  <meta property="og:description" content="{{ config.site_description }}" />
+  <meta property="og:image" content="https://crolllab.github.io/genomedenovo_nf/assets/logo.png" />
+  <meta property="og:image:alt" content="genomedenovo_nf logo" />
+  <meta property="og:url" content="{{ page.canonical_url }}" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="{% if page and page.title %}{{ page.title }} – {{ config.site_name }}{% else %}{{ config.site_name }}{% endif %}" />
+  <meta name="twitter:description" content="{{ config.site_description }}" />
+  <meta name="twitter:image" content="https://crolllab.github.io/genomedenovo_nf/assets/logo.png" />
+{% endblock %}
