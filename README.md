@@ -3,8 +3,6 @@
 Pipeline to assemble and query draft genomes
 ========================================
 
-***This is work in progress and not yet fully tested!***
-
 **genomedenovo_nf** is a [Nextflow](https://www.nextflow.io/) pipeline that assembles Illumina genomes de novo (or takes existing assemblies), checks assembly quality, and searches every genome for one or more query genes. For each query it extracts the hits, aligns them, builds trees and, optionally, recovers the exact coding sequences, classifies them as intact or truncated, and groups them into isoforms. It accepts paired-end reads from local files, NCBI/ENA SRA accessions, or pre-assembled scaffolds. Optional modules add a BUSCO species tree, a paralog check of the hits, read coverage at the query locus of a reference genome, and the transposable elements next to each hit.
 
 Please report any issues or share feature requests on the [GitHub Issues](https://github.com/crolllab/genomedenovo_nf/issues) page.

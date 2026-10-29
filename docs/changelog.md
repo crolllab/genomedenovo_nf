@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.0.0 — 2026-10-29
+
+First stable release, archived on Zenodo. Documentation moved from the README to [crolllab.github.io/genomedenovo_nf](https://crolllab.github.io/genomedenovo_nf/).
 
 ### Added
 
@@ -13,6 +15,8 @@
 - **`pipeline_trace.txt` records `%cpu` and `%mem`**, so CPU use can be checked without SLURM accounting.
 
 ### Fixed
+
+- **Pipeline did not start under Nextflow 26.** The strict syntax parser (the default in Nextflow 26) rejected the sample-name and FASTA helpers, which were closures held in local variables; they are now top-level functions.
 
 - **Protein translated in the wrong frame when a model's 5′ end is offset.** Exonerate can begin an alignment part-way through a query codon (`coding2genome` reporting e.g. `vulgar: AvrStb9_CDS 2 2183 +`, i.e. from the third base of codon 1). The assembled CDS then opened with an incomplete codon, and `extract_exonerate_cds.py` translated it from base 0, shifting the protein out of frame. On a 4,068-genome panel this hit 4,020 of 4,070 models of one effector, whose stored protein was a 37-aa frameshifted fragment while the CDS beside it was correct and every metric in the same row described a full-length product. The partial leading codon is now dropped, so the CDS stays in frame and the protein is `translate(cds)`. Everything built from the protein is affected: `{query_id}_exonerate_protein.fasta`, the protein isoform numbering, `{query_id}_protein_isoforms.fasta`, the protein alignments and the protein trees.
 - **A single non-canonical splice site made every sample "truncated".** `classify_cds_integrity.py` counted a non-canonical splice site as an ORF mutation, which alone set the status to `truncated`. An exon boundary placed one or two bases off reads as a non-canonical acceptor while leaving the protein untouched, and such a call is typically shared by every sample: one `AG>CA` acceptor at the same position made 100 % of a 4,068-genome panel truncated for one effector and left its intact-only isoform table with a single row. The site is still reported in `orf_mutation_types`, `n_noncanonical_splice_sites` and the mutation table, but on its own, with the reading frame still reaching the expected stop, the status is now `full_length` with the note `noncanonical_splice_site_only_ORF_intact`, or `partial` when the model is also cut off by a contig edge or an assembly gap. (The first version of this fix called such incomplete models `full_length`, e.g. two AvrStb9 models missing 43 and 92 N-terminal residues at a contig end.)

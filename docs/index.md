@@ -6,9 +6,6 @@ Optional modules add a BUSCO species tree, a paralog check of the hits, read cov
 
 The pipeline is designed to run both on HPC clusters via SLURM or on single machines, and uses [Singularity](https://sylabs.io/singularity/) containers so all software dependencies are reproducible and portable. Every sample is assembled and searched independently, so large panels of genomes are processed in parallel.
 
-!!! warning "Pre-release"
-    genomedenovo_nf is functional but not yet fully tested. Check the [Changelog](changelog.md) for recent fixes.
-
 [Get started :octicons-rocket-16:](getting-started.md){ .md-button .md-button--primary }
 [View on GitHub :octicons-mark-github-16:](https://github.com/crolllab/genomedenovo_nf){ .md-button }
 <!-- Add the Zenodo DOI badge once the first release has been archived (see RELEASE.md):
@@ -161,6 +158,14 @@ Please cite the underlying tools if you use them through this pipeline.
 
 ## Release notes
 
+### v1.0.0 *(October 2026)*
+
+- First stable release, archived on Zenodo; documentation moved to this site.
+- Coverage conflict flag (`--locus_coverage`): samples whose assembly lacks the query but whose reads cover its reference locus are flagged.
+- Paralog hits are kept out of all downstream outputs (`--query_paralog`), including neighbouring paralog copies in the hit flanks and paralog loci on the reference.
+- Proteins are translated in the correct frame when Exonerate starts mid-codon; a lone non-canonical splice site no longer makes a model truncated.
+- Task resources matched to what each tool uses, capped by `--max_cpus`, `--max_memory` and `--max_time`; runs under Nextflow 26.
+
 ### v0.9.1 *(October 2026)*
 
 - Paralog check (`--query_paralog`), alignment filter for the per-query trees (`--min_align_prop`) and `--exonerate_refine`.
@@ -187,7 +192,7 @@ Questions, bug reports and feature requests are welcome on the [GitHub Issues](h
 
 If you use genomedenovo_nf in your research, please cite:
 
-> Croll, D. (2026). _genomedenovo_nf_ - a Nextflow pipeline for de novo genome assembly and BLAST-based querying (v0.9.1). [https://github.com/crolllab/genomedenovo_nf](https://github.com/crolllab/genomedenovo_nf)
+> Croll, D. (2026). _genomedenovo_nf_ - a Nextflow pipeline for de novo genome assembly and BLAST-based querying (v1.0.0). [https://github.com/crolllab/genomedenovo_nf](https://github.com/crolllab/genomedenovo_nf)
 
 <!-- Replace the GitHub link with the Zenodo DOI and add its badge once the first release has been archived (see RELEASE.md). -->
 

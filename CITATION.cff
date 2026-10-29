@@ -5,6 +5,6 @@ authors:
   given-names: Daniel
   orcid: https://orcid.org/0000-0002-2072-380X
 title: "genomedenovo_nf - a Nextflow pipeline for de novo genome assembly and BLAST-based querying"
-version: v0.9.1
-date-released: 2026-10-15
+version: v1.0.0
+date-released: 2026-10-29
 license: MIT
