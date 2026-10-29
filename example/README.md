@@ -26,8 +26,8 @@ Original full runs are available from ENA/SRA at the accessions below.
 | `fastq/SRR2584863_{1,2}.fastq.gz` | SRR2584863 | REL7179B | Ara−3 | 15,000 |
 | `fastq/SRR2584866_{1,2}.fastq.gz` | SRR2584866 | REL11365 | Ara−3 | 50,000 |
 
-> **Note:** `fastq/` is excluded from git (see `.gitignore`).
-> Re-download using the commands in the next section.
+> **Note:** These truncated files are part of the repository; the full runs
+> can be downloaded from ENA/SRA with the accessions above.
 
 ### Additional SRA accessions (downloaded at runtime)
 
@@ -47,6 +47,13 @@ Three further LTEE runs from different populations are listed in
 |------|-----------|------|-------------|
 | `lacZ_WP_000177906.fasta` | WP_000177906.1 | *lacZ* | Beta-galactosidase protein from *E. coli* REL606 (NC_012967.1, complement 335787..338861). Retrieved via NCBI Entrez (`efetch -db protein -id WP_000177906.1 -format fasta`). |
 
+### Reference genome and TE library
+
+| File | Description |
+|------|-------------|
+| `ecoli_K12_MG1655.fasta` | *E. coli* K-12 MG1655 complete genome (NC_000913.3), for `--reference_genome` and `--locus_coverage`. |
+| `ecoli_IS_elements.fasta` | Nine IS elements (IS1, IS2, IS3, IS4, IS5, IS30, IS150, IS186, IS609) extracted from the K-12 MG1655 genome, named `name#class/family` as RepeatMasker expects, for `--repeat_library`. |
+
 ---
 
 ## Running the example
@@ -57,18 +64,17 @@ Run from the repository root directory.
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --blast_query example/lacZ_WP_000177906.fasta \
     --busco_lineage bacteria_odb10 \
     --outdir example/output
-    --
 ```
 
 **Option 2 — local FASTQ files + 3 additional SRA downloads (6 samples total):**
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --SRA_index example/sra_accessions.txt \
     --blast_query example/lacZ_WP_000177906.fasta \
     --outdir example/output
@@ -78,7 +84,7 @@ nextflow run main.nf \
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --blast_query example/lacZ_WP_000177906.fasta \
     --search_tool exonerate \
     --outdir example/output
@@ -88,7 +94,7 @@ nextflow run main.nf \
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --blast_query example/lacZ_WP_000177906.fasta \
     --busco_lineage bacteria_odb10 \
     --phylo_tree \
@@ -99,7 +105,7 @@ nextflow run main.nf \
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --blast_query example/lacZ_WP_000177906.fasta \
     --reference_genome example/ecoli_K12_MG1655.fasta \
     --locus_coverage \
@@ -110,7 +116,7 @@ nextflow run main.nf \
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --blast_query example/lacZ_WP_000177906.fasta \
     --repeat_library example/ecoli_IS_elements.fasta \
     --outdir example/output
@@ -120,7 +126,7 @@ nextflow run main.nf \
 
 ```bash
 nextflow run main.nf \
-    --reads "example/fastq/SRR*_{1,2}.fastq.gz" \
+    --reads 'example/fastq/SRR*_{1,2}.fastq.gz' \
     --blast_query example/lacZ_WP_000177906.fasta \
     --search_tool exonerate \
     --repeat_library example/ecoli_IS_elements.fasta \
