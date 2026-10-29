@@ -120,9 +120,3 @@ nextflow run main.nf -profile slurm --slurm_queue long \
   --scaffolds 'previous_run/2_assemblies' \
   --blast_query new_queries.fa --search_tool exonerate
 ```
-
----
-
-### Planned features
-
-Planned work is listed in [FUTURE_FEATURES.md](https://github.com/crolllab/genomedenovo_nf/blob/main/FUTURE_FEATURES.md). Feature requests are welcome on the [GitHub Issues](https://github.com/crolllab/genomedenovo_nf/issues) page.

@@ -73,7 +73,7 @@ Pre-release: functional but not yet fully tested.
 
 ## v0.9.0 — 2026-09-17
 
-First tagged pre-release. The pipeline is functional but not yet fully tested; see `FUTURE_FEATURES.md` for planned work.
+First tagged pre-release. The pipeline is functional but not yet fully tested.
 
 ### Features
 
